@@ -1,7 +1,7 @@
 from faststream import FastStream
 from faststream.rabbit import RabbitBroker, RabbitExchange, RabbitQueue, ExchangeType
 
-broker = RabbitBroker("amqp://root:root@rabbitmq:5672/")
+broker = RabbitBroker("amqp://root:toor@rabbitmq:5672/")
 import asyncio
 
 
