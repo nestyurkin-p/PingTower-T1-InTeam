@@ -48,7 +48,7 @@ docker-compose up --build
 }
 ```
 
-в поле ввода:![img.png](sources/img.png)
+в поле ввода:![img.png](readme_src/img.png)
 
 Сообщение появится в логах
 ```
