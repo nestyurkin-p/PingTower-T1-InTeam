@@ -16,13 +16,22 @@ async def main() -> None:
     dp.include_router(user_handlers)
 
     consumer = RabbitConsumer(bot)
+    consumer_task: asyncio.Task | None = None
 
     async def _startup():
-        await asyncio.create_task(consumer.start())
+        nonlocal consumer_task
+        consumer_task = asyncio.create_task(consumer.start())
         logger.info("Rabbit consumer started")
 
     async def _shutdown():
+        nonlocal consumer_task
         await consumer.stop()
+        if consumer_task:
+            consumer_task.cancel()
+            try:
+                await consumer_task
+            except asyncio.CancelledError:
+                pass
         logger.info("Rabbit consumer stopped")
 
     dp.startup.register(_startup)

@@ -1,7 +1,9 @@
 import logging
 import os
+
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -10,7 +12,7 @@ from environs import Env
 from redis.asyncio import Redis
 
 
-# ---------------------- CONFIG ----------------------
+# ---------------------- CONFIG ---------------------- #
 
 @dataclass
 class TgBotConfig:
@@ -72,24 +74,26 @@ def _load_settings() -> Settings:
 
 
 def setup_logging(level: str = "INFO"):
-    os.makedirs("logs", exist_ok=True)
+    log_dir = Path(os.getenv("LOG_DIR", Path(__file__).resolve().parents[1] / "logs"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "notifier.log"
+
     logger = logging.getLogger()
+    logger.handlers.clear()  # чтобы не плодить дубли при повторных вызовах
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
 
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-    # Console
     ch = logging.StreamHandler()
     ch.setFormatter(fmt)
     logger.addHandler(ch)
 
-    # Rotating file
-    fh = RotatingFileHandler("logs/notifier.log", maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8")
+    fh = RotatingFileHandler(log_file, maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8", delay=True)
     fh.setFormatter(fmt)
     logger.addHandler(fh)
 
 
-# ---------------------- SINGLETONS ----------------------
+# ---------------------- SINGLETONS ---------------------- #
 
 config: Settings = _load_settings()
 
