@@ -17,3 +17,8 @@ llm_exchange = RabbitExchange(
     type=ExchangeType.TOPIC,
     durable=True,
 )
+
+@app.after_startup
+async def declare():
+    await broker.declare_exchange(pinger_exchange)
+    await broker.declare_exchange(llm_exchange)

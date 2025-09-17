@@ -17,7 +17,9 @@ QUEUE_IN = RabbitQueue("llm_requests", durable=True, routing_key="llm.requests")
 QUEUE_OUT_ROUTING_KEY = "llm.responses"
 
 # LLM клиент
-llm = OpenAIWrapper(api_key="sk-Z5H3GUqo6S4VeCy7p7YTWGCyRKVzqm16")
+# llm = OpenAIWrapper(api_key="sk-Z5H3GUqo6S4VeCy7p7YTWGCyRKVzqm16")
+
+llm = OpenAIWrapper("sk-Z5H3GUqo6S4VeCy7p7YTWGCyRKVzqm16")
 
 # Pydantic модель для валидации входящих сообщений
 class LLMRequest(BaseModel):
