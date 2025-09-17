@@ -1,19 +1,19 @@
 services:
   rabbitmq:
     image: rabbitmq:3-management
-    container_name: rabbitmq
+    hostname: rabbitmq
     ports:
       - "5672:5672"
       - "15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: root
+      RABBITMQ_DEFAULT_PASS: root
 
   llm_service:
     build: .
-    container_name: llm_service
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - RABBIT_HOST=rabbitmq   # важно!
     depends_on:
       - rabbitmq
+    environment:
+      RABBIT_USER: root
+      RABBIT_PASS: root
+      RABBIT_HOST: rabbitmq   # важно, совпадает с service name
