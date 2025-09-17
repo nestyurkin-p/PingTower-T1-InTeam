@@ -1,0 +1,53 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: "root"
+      RABBITMQ_DEFAULT_PASS: "toor"
+    networks:
+      - broker_network
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 5s
+      timeout: 10s
+      retries: 3
+
+  broker_service:
+    build:
+      context: ./broker
+      dockerfile: Dockerfile
+    container_name: broker_service
+    ports:
+      - "1234:1234"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    privileged: true
+    networks:
+      - broker_network
+
+  example_service:
+    build:
+      context: ./example
+      dockerfile: Dockerfile
+    container_name: example_service
+    ports:
+      - "6969:6969"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy # если настроен healthcheck
+      broker_service:
+        condition: service_started # дефолт
+    privileged: true
+    networks:
+      - broker_network
+
+networks:
+  broker_network:
+    driver: bridge
+    external: true
+
