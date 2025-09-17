@@ -1,0 +1,4 @@
+aiogram==3.15.0
+aio-pika==9.4.3
+environs==11.2.1
+redis==5.2.1

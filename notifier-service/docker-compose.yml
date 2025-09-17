@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  rabbit:
+    image: rabbitmq:3.13-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER:-root}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASS:-toor}
+    profiles: [ "infra" ]
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    profiles: [ "infra" ]
+
+  tg-bot:
+    build:
+      context: ./tg-bot
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    depends_on:
+      - rabbit
+      - redis
+    restart: unless-stopped
