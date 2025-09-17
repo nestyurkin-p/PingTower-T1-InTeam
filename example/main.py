@@ -23,11 +23,21 @@ async def handler_example(message: MessageClassExample): # лучше типиз
 
 @app.after_startup
 async def send_test_message():
-    await broker.publish(
-        {"msg": "hello from startup"},
-        exchange=pinger_exchange, # exchange, который заимпортили
-        routing_key="pinger.group",  # совпадёт с твоими очередями группы pinger
+    await broker.publish( # НАПРЯМУЮ, В ОЧЕРЕДЬ
+        {
+            "some_message": "ZZZZZZVVVVV",
+            "something": {"ZoV": "alice"}
+        },
+        queue="pinger-to-web-queue",
     )
+    # await broker.publish(
+    #     {
+    #         "some_message": "VVVVVZZZZZZ",
+    #         "something": {"VoZ": "alice"}
+    #     },
+    #     exchange=pinger_exchange, # exchange, который заимпортили
+    #     routing_key="pinger.group",  # совпадёт с твоими очередями группы pinger
+    # )
     logging.info("Test message published!")
 
 
