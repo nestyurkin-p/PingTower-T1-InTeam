@@ -30,6 +30,42 @@ services:
     networks:
       - broker_network
 
+  pinger:
+    build:
+      context: ./pinger
+      dockerfile: Dockerfile
+    container_name: pinger
+    ports:
+      - "6767:6767"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy # если настроен healthcheck
+      broker_service:
+        condition: service_started # дефолт
+    privileged: true
+    # переменные локального окружения
+    environment:
+      INTERVAL: 5 # секунд
+      INPUT_DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:5432/monitor # юрл таблички отслеживаемыми вебсайтами
+    networks:
+      - broker_network
+
+  llm_service:
+      build:
+        context: ./LLM_service
+        dockerfile: Dockerfile
+      container_name: llm_service
+      ports:
+        - "6868:6868"
+      depends_on:
+        rabbitmq:
+          condition: service_healthy # если настроен healthcheck
+        broker_service:
+          condition: service_started # дефолт
+      privileged: true
+      networks:
+        - broker_network
+
   example_service:
     build:
       context: ./example
@@ -50,4 +86,6 @@ networks:
   broker_network:
     driver: bridge
     external: true
+
+  
 
