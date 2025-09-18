@@ -1,6 +1,4 @@
-from app.config import db_config
-from .database import DataBase
+from .database import db
+from .models import Base, User, TrackedService, HealthLog
 
-db = DataBase(db_config.url)
-
-__all__ = ["db"]
+__all__ = ["db", "Base", "User", "TrackedService", "HealthLog"]
