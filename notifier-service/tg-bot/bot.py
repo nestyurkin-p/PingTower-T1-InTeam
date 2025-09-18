@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import json
 from aiogram.types import BotCommand
-from aiogram import Dispatcher
+from aiogram import Bot, Dispatcher
 from pydantic import BaseModel
 
-from core import dp, bot, setup_logging
+from core.config import dp, bot, app_cfg
+from core.logging import setup_logging
+from handlers.user_handlers import router as user_router
 from handlers import router as user_handlers
 from utils import subscriptions
 
@@ -81,6 +84,7 @@ async def handle_alert(message: AlertMessage):
 
 async def main() -> None:
     setup_logging()
+
     dp.include_router(user_handlers)
 
     # команды для бота
