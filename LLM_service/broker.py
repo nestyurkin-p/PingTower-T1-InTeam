@@ -1,21 +1,10 @@
 from faststream import FastStream
 from faststream.rabbit import RabbitBroker, RabbitExchange, RabbitQueue, ExchangeType
-<<<<<<< HEAD
-<<<<<<< HEAD
-
-broker = RabbitBroker("amqp://root:root@rabbitmq:5672/")
-=======
-import asyncio
-
-broker = RabbitBroker("amqp://root:toor@rabbitmq:5672/")
->>>>>>> 84c27474864f74470f4df2e37ee9ca961b092d39
-=======
 
 broker = RabbitBroker("amqp://root:toor@rabbitmq:5672/")
 import asyncio
 
 
->>>>>>> ff0b6af37333065e45fa807af709a80d7707af89
 app = FastStream(broker)
 
 # exchange группируют очереди. если отправляем сообщение по routing_key,
@@ -30,13 +19,7 @@ llm_exchange = RabbitExchange(
     "llm.events",
     type=ExchangeType.TOPIC,
     durable=True,
-<<<<<<< HEAD
-<<<<<<< HEAD
-)
-=======
-=======
 
->>>>>>> ff0b6af37333065e45fa807af709a80d7707af89
 )
 
 
@@ -68,7 +51,3 @@ async def start_faststream():
 
 if __name__ == "__main__":
     asyncio.run(start_faststream())
-<<<<<<< HEAD
->>>>>>> 84c27474864f74470f4df2e37ee9ca961b092d39
-=======
->>>>>>> ff0b6af37333065e45fa807af709a80d7707af89
