@@ -1,26 +1,31 @@
-from aiogram import Router, F
+import logging
+from aiogram import Router
+from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
-from database import db  # общий модуль БД из корня проекта
 
-router = Router()
+from lexicon import LEXICON
+from utils import subscriptions
+
+router: Router = Router()
+logger = logging.getLogger(__name__)
 
 
-@router.message(F.text == "/start")
+@router.message(CommandStart())
 async def cmd_start(message: Message):
-    await db.upsert_user_tg_chat(
-        user_id=message.from_user.id,
-        chat_id=message.chat.id,
-        login=message.from_user.username,
-    )
-    await message.answer("Вы подписаны на уведомления в этом чате.")
+    await subscriptions.add(message.chat.id)
+    await message.answer(LEXICON["start"])
+
+    logger.info(f"User {message.from_user.id} {message.from_user.username} subscribed to notifications")
 
 
-@router.message(F.text == "/stop")
+@router.message(Command("stop"))
 async def cmd_stop(message: Message):
-    await db.disable_user_tg(message.from_user.id)
-    await message.answer("Telegram-уведомления отключены.")
+    await subscriptions.remove(message.chat.id)
+    await message.answer(LEXICON["stop"])
+
+    logger.info(f"User {message.from_user.id} {message.from_user.username} unsubscribed to notifications")
 
 
-@router.message(F.text == "/ping")
+@router.message(Command("ping"))
 async def cmd_ping(message: Message):
-    await message.answer("pong")
+    await message.answer(LEXICON["ping"])
