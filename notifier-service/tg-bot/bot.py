@@ -1,41 +1,17 @@
 import asyncio
 import logging
-
 from aiogram.types import BotCommand
 
-from core import dp, bot, setup_logging
-from handlers import router as user_handlers
-from services.rabbit_consumer import RabbitConsumer
+from core.config import dp, bot, app_cfg
+from core.logging import setup_logging
+from handlers.user_handlers import router as user_router
 
 logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
-    setup_logging()
-
-    dp.include_router(user_handlers)
-
-    consumer = RabbitConsumer(bot)
-    consumer_task: asyncio.Task | None = None
-
-    async def _startup():
-        nonlocal consumer_task
-        consumer_task = asyncio.create_task(consumer.start())
-        logger.info("Rabbit consumer started")
-
-    async def _shutdown():
-        nonlocal consumer_task
-        await consumer.stop()
-        if consumer_task:
-            consumer_task.cancel()
-            try:
-                await consumer_task
-            except asyncio.CancelledError:
-                pass
-        logger.info("Rabbit consumer stopped")
-
-    dp.startup.register(_startup)
-    dp.shutdown.register(_shutdown)
+    setup_logging(app_cfg.log_level)
+    dp.include_router(user_router)
 
     await bot.delete_webhook(drop_pending_updates=False)
     await bot.set_my_commands([
