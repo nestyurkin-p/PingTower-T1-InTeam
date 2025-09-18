@@ -13,7 +13,15 @@ logging.basicConfig(
 )
 
 # LLM клиент
+<<<<<<< HEAD
+<<<<<<< HEAD
+llm = OpenAIWrapper(api_key="sk-Z5H3GUqo6S4VeCy7p7YTWGCyRKVzqm16")
+=======
 llm = OpenAIWrapper("sk-Z5H3GUqo6S4VeCy7p7YTWGCyRKVzqm16")
+>>>>>>> 84c27474864f74470f4df2e37ee9ca961b092d39
+=======
+llm = OpenAIWrapper("sk-Z5H3GUqo6S4VeCy7p7YTWGCyRKVzqm16")
+>>>>>>> ff0b6af37333065e45fa807af709a80d7707af89
 
 # Pydantic модель для валидации входящих сообщений
 class PingerMessage(BaseModel):
