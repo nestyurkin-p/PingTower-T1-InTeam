@@ -1,13 +1,9 @@
 import asyncio
 import logging
-import json
 from aiogram.types import BotCommand
-from aiogram import Bot, Dispatcher
 from pydantic import BaseModel
 
-from core.config import dp, bot, app_cfg
-from core.logging import setup_logging
-from handlers.user_handlers import router as user_router
+from core.config import dp, bot, setup_logging
 from handlers import router as user_handlers
 from utils import subscriptions
 
@@ -15,6 +11,7 @@ from broker import broker, app, llm_exchange
 from faststream.rabbit import RabbitQueue
 
 logger = logging.getLogger(__name__)
+
 
 # Pydantic модель для сообщений
 class AlertMessage(BaseModel):
@@ -34,36 +31,35 @@ async def handle_alert(message: AlertMessage):
     logger.info(f"[x] Получено сообщение для TG: {message.url}")
 
     try:
-        # Если есть explanation — используем его
-        if message.explanation:
-            text = (
-                f"📡 <b>{message.name}</b> ({message.url})\n\n"
-                f"{message.explanation}"
-            )
-        else:
-            logs = message.logs or {}
-            metrics = logs.get("metrics", {}) or {}
-            errors = logs.get("errors", []) or []
+        logs = message.logs or {}
 
-            status_code = metrics.get("status")
-            rtt = metrics.get("rtt")
-            ok = status_code == 200
+        # Значения из logs
+        traffic_light = logs.get("traffic_light")
+        http_status = logs.get("http_status")
+        latency_ms = logs.get("latency_ms")
+        ping_ms = logs.get("ping_ms")
+        ssl_days_left = logs.get("ssl_days_left")
+        dns_resolved = logs.get("dns_resolved")
+        redirects = logs.get("redirects")
+        errors_last = logs.get("errors_last")
 
-            status_icon = "✅" if ok else "❌"
+        # Иконка статуса
+        icon_map = {"green": "✅", "orange": "🟠", "red": "❌"}
+        status_icon = icon_map.get(traffic_light, "❔")
 
-            # Базовый блок
-            text = (
-                f"{status_icon} <b>{message.name}</b> ({message.url})\n"
-                f"🕒 Время: {logs.get('timestamp')}\n"
-                f"📡 Код ответа: {status_code}\n"
-                f"⚡ RTT: {rtt} сек\n"
-            )
-
-            # Добавляем ошибки, если есть
-            if errors:
-                text += "\n<b>Ошибки:</b>\n"
-                for e in errors:
-                    text += f"• {e.get('code')}: {e.get('message')}\n"
+        # Блок статистики
+        stats_text = (
+            f"<b>{message.name}</b> ({message.url})\n"
+            f"{status_icon} Светофор: {traffic_light.upper()}\n\n"
+            f"🕒 Время: {logs.get('timestamp')}\n"
+            f"📡 Код ответа: {http_status}\n"
+            f"⚡ Задержка HTTP: {latency_ms} мс\n"
+            f"📶 Пинг: {ping_ms} мс\n"
+            f"🔐 SSL дней осталось: {ssl_days_left}\n"
+            f"🌐 DNS резолвинг: {'OK' if dns_resolved else 'FAIL'}\n"
+            f"↪️ Редиректы: {redirects}\n"
+            f"❗ Ошибки (последние проверки): {errors_last}\n"
+        )
 
         # Рассылка подписчикам
         chat_ids = await subscriptions.get_all()
@@ -74,7 +70,13 @@ async def handle_alert(message: AlertMessage):
 
         for cid in chat_ids:
             try:
-                await bot.send_message(cid, text, parse_mode="HTML")
+                # 1. Всегда отправляем статистику
+                await bot.send_message(cid, stats_text, parse_mode="HTML")
+
+                # 2. Если есть explanation — отправляем его вторым сообщением
+                if message.explanation:
+                    await bot.send_message(cid, message.explanation, parse_mode="HTML")
+
             except Exception as e:
                 logger.exception("Send failed to chat_id=%s: %s", cid, e)
 

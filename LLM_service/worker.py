@@ -1,17 +1,20 @@
 import logging
 import asyncio
 import json
+import os
 from pydantic import BaseModel
 from broker import broker, app, llm_exchange, pinger_exchange
 from faststream.rabbit import RabbitQueue
 from openai_wrapper import OpenAIWrapper
-import os
 
 # Логгирование
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
+
+# Флаг из окружения
+USE_SKIP_NOTIFICATION = int(os.getenv("USE_SKIP_NOTIFICATION", "0"))
 
 # LLM клиент
 llm = OpenAIWrapper("sk-Z5H3GUqo6S4VeCy7p7YTWGCyRKVzqm16")
@@ -34,31 +37,34 @@ async def handle_pinger_message(message: PingerMessage):
     logging.info(f"[x] Получено сообщение от пингера для сайта {message.name} ({message.url})")
 
     try:
-        if int(os.getenv("USE_SKIP_NOTIFICATION")) == 1:
-            logging.info("!!!!!USE_SKIP_NOTIFICATION=1")
-            # 1. Проверяем skip_notification
+        # 1. Проверяем skip_notification, если USE_SKIP_NOTIFICATION=1
+        if USE_SKIP_NOTIFICATION == 1:
             if message.com.get("skip_notification", False):
                 logging.info(f"[→] Пропуск обработки для {message.url} (skip_notification=True)")
                 return
         else:
-            logging.info("!!!!!USE_SKIP_NOTIFICATION=0")
-            logging.info(f"[→] Должен быть пропуск этого сообщения,\nно USE_SKIP_NOTIFICATION=False. {message.url} (skip_notification=True)")
+            logging.info(
+                f"[→] USE_SKIP_NOTIFICATION=0, сообщение обрабатывается всегда "
+                f"(даже если skip_notification=True для {message.url})"
+            )
 
         explanation = ""
 
         # 2. Если нужно звать LLM
-        
         if message.com.get("llm", False):
             prompt = (
                 f"Проанализируй статус сайта '{message.name}' ({message.url}).\n"
-                f"Данные пингера:\n{json.dumps(message.logs, ensure_ascii=False, indent=2)}\n\n"
-                f"Объясни на русском языке, что означают эти показатели и ошибки, "
-                f"и в каком состоянии находится сайт."
-                f"Не пиши много, нужно сделать короткий пост о текущем статусе работы сервиса."
-                f"Никак не форматируй текст."
+                f"Входные данные пингера:\n{json.dumps(message.logs, ensure_ascii=False, indent=2)}\n\n"
+                f"Сформулируй краткое резюме о состоянии сайта на русском языке.\n"
+                f"Форма ответа:\n"
+                f"- Текущее состояние (работает стабильно / есть проблемы / недоступен)\n"
+                f"- Основная причина (если есть: задержка, код ответа, SSL, DNS и т.д.)\n"
+                f"- Краткий вывод о том, что это значит для пользователей\n\n"
+                f"Не используй форматирование, списки Markdown или HTML. Пиши очень коротко и по сути."
             )
+
             explanation = llm.send_message(prompt)
-            logging.info(explanation)
+            logging.info(f"[LLM] {explanation}")
 
         # 3. Формируем ответ
         response = {
