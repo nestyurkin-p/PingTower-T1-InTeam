@@ -45,7 +45,7 @@ services:
     privileged: true
     # переменные локального окружения
     environment:
-      INTERVAL: 10 # секунд
+      INTERVAL: 60 # секунд
       INPUT_DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:5432/monitor # юрл таблички отслеживаемыми вебсайтами
     networks:
       - broker_network

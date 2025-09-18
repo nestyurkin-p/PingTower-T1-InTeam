@@ -1,13 +1,11 @@
 import asyncio
 import logging
-import json
 from aiogram.types import BotCommand
-from aiogram import Bot, Dispatcher
+from aiogram import Dispatcher
 from pydantic import BaseModel
 
 from core import dp, bot, setup_logging
 from handlers import router as user_handlers
-from utils.formatter import format_alert
 from utils import subscriptions
 
 from broker import broker, app, llm_exchange
@@ -15,29 +13,56 @@ from faststream.rabbit import RabbitQueue
 
 logger = logging.getLogger(__name__)
 
-# Pydantic модель для сообщений из очереди
+# Pydantic модель для сообщений
 class AlertMessage(BaseModel):
-    id: int | None = None
-    url: str | None = None
-    name: str | None = None
-    com: dict | None = None
-    logs: dict | None = None
+    id: int
+    url: str
+    name: str
+    com: dict
+    logs: dict
     explanation: str | None = None
 
 
-# Подписчик FastStream: слушает сообщения из LLM (или пингера)
 @broker.subscriber(
     RabbitQueue("llm-to-tg-queue", durable=True, routing_key="llm.group"),
     llm_exchange,
 )
 async def handle_alert(message: AlertMessage):
-    logger.info(f"[x] Получено сообщение для TG: {message.url or message.id}")
+    logger.info(f"[x] Получено сообщение для TG: {message.url}")
 
     try:
-        # формируем текст уведомления
-        payload = message.model_dump()
-        text = format_alert(payload)
+        # Если есть explanation — используем его
+        if message.explanation:
+            text = (
+                f"📡 <b>{message.name}</b> ({message.url})\n\n"
+                f"{message.explanation}"
+            )
+        else:
+            logs = message.logs or {}
+            metrics = logs.get("metrics", {}) or {}
+            errors = logs.get("errors", []) or []
 
+            status_code = metrics.get("status")
+            rtt = metrics.get("rtt")
+            ok = status_code == 200
+
+            status_icon = "✅" if ok else "❌"
+
+            # Базовый блок
+            text = (
+                f"{status_icon} <b>{message.name}</b> ({message.url})\n"
+                f"🕒 Время: {logs.get('timestamp')}\n"
+                f"📡 Код ответа: {status_code}\n"
+                f"⚡ RTT: {rtt} сек\n"
+            )
+
+            # Добавляем ошибки, если есть
+            if errors:
+                text += "\n<b>Ошибки:</b>\n"
+                for e in errors:
+                    text += f"• {e.get('code')}: {e.get('message')}\n"
+
+        # Рассылка подписчикам
         chat_ids = await subscriptions.get_all()
         logger.info("Broadcast to %d subscribers", len(chat_ids))
         if not chat_ids:
@@ -46,7 +71,7 @@ async def handle_alert(message: AlertMessage):
 
         for cid in chat_ids:
             try:
-                await bot.send_message(cid, text)
+                await bot.send_message(cid, text, parse_mode="HTML")
             except Exception as e:
                 logger.exception("Send failed to chat_id=%s: %s", cid, e)
 
@@ -56,7 +81,6 @@ async def handle_alert(message: AlertMessage):
 
 async def main() -> None:
     setup_logging()
-
     dp.include_router(user_handlers)
 
     # команды для бота

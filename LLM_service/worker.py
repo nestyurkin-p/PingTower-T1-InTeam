@@ -47,14 +47,18 @@ async def handle_pinger_message(message: PingerMessage):
         explanation = ""
 
         # 2. Если нужно звать LLM
+        
         if message.com.get("llm", False):
             prompt = (
                 f"Проанализируй статус сайта '{message.name}' ({message.url}).\n"
                 f"Данные пингера:\n{json.dumps(message.logs, ensure_ascii=False, indent=2)}\n\n"
                 f"Объясни на русском языке, что означают эти показатели и ошибки, "
                 f"и в каком состоянии находится сайт."
+                f"Не пиши много, нужно сделать короткий пост о текущем статусе работы сервиса."
+                f"Никак не форматируй текст."
             )
             explanation = llm.send_message(prompt)
+            logging.info(explanation)
 
         # 3. Формируем ответ
         response = {

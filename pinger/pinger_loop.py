@@ -98,10 +98,6 @@ async def monitor():
             # локальный вывод
             print(json.dumps(record, ensure_ascii=False), flush=True)
 
-            if skip_notification:
-                logging.info(f"[→] Пропущено уведомление для {site['url']} (статус не изменился)")
-                continue
-
             # публикация в RabbitMQ
             try:
                 await broker.publish(
