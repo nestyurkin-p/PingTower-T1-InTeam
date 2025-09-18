@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from broker import broker, app, llm_exchange, pinger_exchange
 from faststream.rabbit import RabbitQueue
 from openai_wrapper import OpenAIWrapper
+import os
 
 # Логгирование
 logging.basicConfig(
@@ -33,10 +34,15 @@ async def handle_pinger_message(message: PingerMessage):
     logging.info(f"[x] Получено сообщение от пингера для сайта {message.name} ({message.url})")
 
     try:
-        # 1. Проверяем skip_notification
-        if message.com.get("skip_notification", False):
-            logging.info(f"[→] Пропуск обработки для {message.url} (skip_notification=True)")
-            return
+        if int(os.getenv("USE_SKIP_NOTIFICATION")) == 1:
+            logging.info("!!!!!USE_SKIP_NOTIFICATION=1")
+            # 1. Проверяем skip_notification
+            if message.com.get("skip_notification", False):
+                logging.info(f"[→] Пропуск обработки для {message.url} (skip_notification=True)")
+                return
+        else:
+            logging.info("!!!!!USE_SKIP_NOTIFICATION=0")
+            logging.info(f"[→] Должен быть пропуск этого сообщения,\nно USE_SKIP_NOTIFICATION=False. {message.url} (skip_notification=True)")
 
         explanation = ""
 
