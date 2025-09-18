@@ -33,34 +33,40 @@ async def handle_pinger_message(message: PingerMessage):
     logging.info(f"[x] Получено сообщение от пингера для сайта {message.name} ({message.url})")
 
     try:
-        # Проверяем skip_notification
+        # 1. Проверяем skip_notification
         if message.com.get("skip_notification", False):
             logging.info(f"[→] Пропуск обработки для {message.url} (skip_notification=True)")
             return
 
-        # Формируем запрос для LLM
-        prompt = (
-            f"Проанализируй статус сайта '{message.name}' ({message.url}).\n"
-            f"Данные пингера:\n{json.dumps(message.logs, ensure_ascii=False, indent=2)}\n\n"
-            f"Объясни на русском языке, что означают эти показатели и ошибки, "
-            f"и в каком состоянии находится сайт."
-        )
+        explanation = ""
 
-        # Отправляем в LLM
-        explanation = llm.send_message(prompt)
+        # 2. Если нужно звать LLM
+        if message.com.get("llm", False):
+            prompt = (
+                f"Проанализируй статус сайта '{message.name}' ({message.url}).\n"
+                f"Данные пингера:\n{json.dumps(message.logs, ensure_ascii=False, indent=2)}\n\n"
+                f"Объясни на русском языке, что означают эти показатели и ошибки, "
+                f"и в каком состоянии находится сайт."
+            )
+            explanation = llm.send_message(prompt)
 
+        # 3. Формируем ответ
         response = {
-            "logs": message.model_dump(),   # ✅ вместо .dict()
+            "id": message.id,
+            "url": message.url,
+            "name": message.name,
+            "com": message.com,
+            "logs": message.logs,
             "explanation": explanation,
         }
 
-        # Отправляем обратно в очередь LLM
+        # 4. Публикуем в LLM exchange
         await broker.publish(
             response,
             exchange=llm_exchange,
             routing_key="llm.group",
         )
-        logging.info(f"[✓] Объяснение для сайта {message.url} отправлено")
+        logging.info(f"[✓] Обработано и отправлено для {message.url}")
 
     except Exception as e:
         logging.error(f"[!] Ошибка обработки сообщения: {e}")
