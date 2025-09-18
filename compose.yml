@@ -45,7 +45,7 @@ services:
     privileged: true
     # переменные локального окружения
     environment:
-      INTERVAL: 5 # секунд
+      INTERVAL: 10 # секунд
       INPUT_DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:5432/monitor # юрл таблички отслеживаемыми вебсайтами
     networks:
       - broker_network
@@ -63,8 +63,44 @@ services:
         broker_service:
           condition: service_started # дефолт
       privileged: true
+      environment:
+        USE_SKIP_NOTIFICATION: 0 # если хотим чтоб ллм уведомления приходили по всем статусам после пингера
       networks:
         - broker_network
+
+  tg_service:
+    build:
+      context: ./notifier-service/tg-bot
+      dockerfile: Dockerfile
+    container_name: tg_service
+    ports:
+      - "6966:6966"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy # если настроен healthcheck
+      broker_service:
+        condition: service_started # дефолт
+    privileged: true
+    environment:
+      # Telegram
+      TG_TOKEN: 8368944259:AAHj-ivSsU-6GVV7nG4Ai1KFpNT6tKzIemM
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      # Logging
+      LOG_LEVEL: INFO
+    networks:
+      - broker_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+       - "6379:6379"
+    networks:
+      - broker_network
 
   example_service:
     build:
