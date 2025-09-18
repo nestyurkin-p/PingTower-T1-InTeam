@@ -13,36 +13,63 @@ logging.basicConfig(
 )
 
 # LLM клиент
-# llm = OpenAIWrapper(api_key="sk-Z5H3GUqo6S4VeCy7p7YTWGCyRKVzqm16")
-
 llm = OpenAIWrapper("sk-Z5H3GUqo6S4VeCy7p7YTWGCyRKVzqm16")
 
 # Pydantic модель для валидации входящих сообщений
-class LLMRequest(BaseModel):
-    query: str
+class PingerMessage(BaseModel):
+    id: int
+    url: str
+    name: str
+    com: dict
+    logs: dict
 
-# Подписчик: слушает входящую очередь
-@broker.subscriber(RabbitQueue("pinger-to-llm-queue", durable=True, routing_key="pinger.group"), pinger_exchange)
-async def handle_llm_request(message: LLMRequest):
-    logging.info(f"[x] Получено сообщение: {message.query}")
+
+# Подписчик: слушает сообщения от пингера
+@broker.subscriber(
+    RabbitQueue("pinger-to-llm-queue", durable=True, routing_key="pinger.group"),
+    pinger_exchange,
+)
+async def handle_pinger_message(message: PingerMessage):
+    logging.info(f"[x] Получено сообщение от пингера для сайта {message.name} ({message.url})")
 
     try:
-        result = llm.send_message(message.query)
-        response = {"query": message.query, "response": result}
+        # Проверяем skip_notification
+        if message.com.get("skip_notification", False):
+            logging.info(f"[→] Пропуск обработки для {message.url} (skip_notification=True)")
+            return
 
+        # Формируем запрос для LLM
+        prompt = (
+            f"Проанализируй статус сайта '{message.name}' ({message.url}).\n"
+            f"Данные пингера:\n{json.dumps(message.logs, ensure_ascii=False, indent=2)}\n\n"
+            f"Объясни на русском языке, что означают эти показатели и ошибки, "
+            f"и в каком состоянии находится сайт."
+        )
+
+        # Отправляем в LLM
+        explanation = llm.send_message(prompt)
+
+        response = {
+            "logs": message.model_dump(),   # ✅ вместо .dict()
+            "explanation": explanation,
+        }
+
+        # Отправляем обратно в очередь LLM
         await broker.publish(
             response,
             exchange=llm_exchange,
-            routing_key='llm.group',
+            routing_key="llm.group",
         )
-        logging.info(f"[✓] Отправлен результат: {str(result)[:60]}...")
+        logging.info(f"[✓] Объяснение для сайта {message.url} отправлено")
 
     except Exception as e:
         logging.error(f"[!] Ошибка обработки сообщения: {e}")
 
+
 # Запуск FastStream
 async def start_faststream():
     await app.run()
+
 
 if __name__ == "__main__":
     asyncio.run(start_faststream())
