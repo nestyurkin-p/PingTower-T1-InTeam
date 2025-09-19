@@ -1,2 +1,2 @@
 import BaseBlock from "./BaseBlock";
-export default (props: any) => <BaseBlock {...props} title="LLM" emoji="🤖" />;
+export default (props: any) => <BaseBlock {...props} type="llm" />;

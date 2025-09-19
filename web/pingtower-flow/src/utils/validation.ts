@@ -1,6 +1,8 @@
-export function canConnect(source?: string, target?: string) {
-  if (!source || !target) return false;
-  if (source === "website" && (target === "llm" || target === "messenger")) return true;
-  if (source === "llm" && target === "messenger") return true;
+export function canConnect(sourceType?: string, targetType?: string): boolean {
+  if (!sourceType || !targetType) return false;
+
+  if (sourceType === "website" && (targetType === "llm" || targetType === "messenger")) return true;
+  if (sourceType === "llm" && targetType === "messenger") return true;
+
   return false;
 }
