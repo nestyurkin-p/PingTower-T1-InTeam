@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import os
+from core.config import settings
 
 from .database import DataBase
 
-_db_url = os.getenv("DATABASE_URL")
-db: DataBase | None = DataBase(_db_url) if _db_url and _db_url.strip() else None
+_database_url = settings.database.main_url
+
+db: DataBase | None = DataBase(_database_url) if _database_url else None
 
 __all__ = ["DataBase", "db"]

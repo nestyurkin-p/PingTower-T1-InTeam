@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Optional
 
+from core.config import settings
 from database import DataBase
 
 from ..models import DispatchMessage
 
 logger = logging.getLogger(__name__)
 
-_AUTOCREATE = os.getenv("NOTIFIER_AUTOCREATE_SITES", "false").lower() in {"1", "true", "yes", "on"}
+_AUTOCREATE = settings.dispatcher.autocreate_sites
 
 
 async def resolve_site_id(db: DataBase, payload: DispatchMessage) -> Optional[int]:
@@ -46,6 +46,30 @@ async def telegram_chats_for_site(db: DataBase, site_id: int) -> list[int]:
             seen.add(chat_id)
             result.append(chat_id)
     return result
+
+
+async def team_email_groups_for_site(db: DataBase, site_id: int) -> list[tuple[str, list[str]]]:
+    """Return list of (team_name, emails) for teams tracking the site."""
+    team_ids = await db.get_team_ids_by_site(site_id)
+    groups: list[tuple[str, list[str]]] = []
+    for team_id in team_ids:
+        team = await db.get_team(team_id)
+        if not team:
+            continue
+        raw_list = list(team.email_recipients or [])
+        emails = []
+        seen: set[str] = set()
+        for addr in raw_list:
+            if not isinstance(addr, str):
+                continue
+            normalized = addr.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            emails.append(normalized)
+        if emails:
+            groups.append((team.name, emails))
+    return groups
 
 
 def _extract_int(value: object) -> Optional[int]:

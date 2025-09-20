@@ -1,30 +1,41 @@
-import os
+import asyncio
 import json
 import logging
-import psycopg2
-import asyncio
+import sys
+from pathlib import Path
 from time import strftime
-from broker import broker, app, pinger_exchange
-from pinger_checks import run_checks, CHECKS as DEFAULT_CHECKS
+
+import psycopg2
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+if str(ROOT_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR.parent))
+
+from core.config import settings  # noqa: E402
+from broker import app, broker, pinger_exchange  # noqa: E402
+from pinger_checks import CHECKS as DEFAULT_CHECKS, run_checks  # noqa: E402
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-# Конфиги из окружения
-DATABASE_URL = os.getenv("INPUT_DATABASE_URL")
-INTERVAL = int(os.getenv("INTERVAL", "5"))
+DATABASE_URL = settings.pinger.input_database_url
+INTERVAL = settings.pinger.interval_sec
 
 
 def fetch_sites():
-    """Загрузка всех сайтов из таблицы"""
+    """Fetch sites from the monitoring database."""
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT id, url, name, com, last_ok, last_status, last_rtt, skip_notification
                 FROM sites;
-            """)
+                """
+            )
             rows = cur.fetchall()
             return [
                 {
@@ -42,7 +53,7 @@ def fetch_sites():
 
 
 def update_site_status(site_id, ok, status, rtt, skip_notification):
-    """Обновляем сохранённый статус сайта"""
+    """Persist the latest probe status back to the database."""
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -60,10 +71,10 @@ def update_site_status(site_id, ok, status, rtt, skip_notification):
 
 
 async def monitor():
-    """Основной цикл мониторинга"""
+    """Run monitoring loop publishing updates to RabbitMQ."""
     while True:
         sites = fetch_sites()
-        logging.info(f"Загружено {len(sites)} сайтов для проверки")
+        logging.info("Загружено %d сервисов для проверки", len(sites))
 
         for site in sites:
             errors, metrics = run_checks(site["url"], DEFAULT_CHECKS)
@@ -71,7 +82,6 @@ async def monitor():
             status = metrics.get("status")
             rtt = metrics.get("rtt")
 
-            # проверка изменений
             changed = (
                 site["last_ok"] != ok
                 or site["last_status"] != status
@@ -92,33 +102,29 @@ async def monitor():
                 },
             }
 
-            # сохраняем статус в БД
             update_site_status(site["id"], ok, status, rtt, skip_notification)
 
-            # локальный вывод
             print(json.dumps(record, ensure_ascii=False), flush=True)
 
             if skip_notification:
-                logging.info(f"[→] Пропущено уведомление для {site['url']} (статус не изменился)")
+                logging.info("[→] Пропускаем уведомление для %s (изменений нет)", site["url"])
                 continue
 
-            # публикация в RabbitMQ
             try:
                 await broker.publish(
                     record,
                     exchange=pinger_exchange,
-                    routing_key="pinger.group",
+                    routing_key=settings.rabbit.pinger_routing_key,
                 )
-                logging.info(f"[✓] ID={site['id']} отправлен в RMQ")
+                logging.info("[V] ID=%s отправлено в брокер", site["id"])
             except Exception as e:
-                logging.error(f"[!] Ошибка публикации в RMQ для ID={site['id']}: {e}")
+                logging.error("[!] Ошибка публикации в RabbitMQ для ID=%s: %s", site["id"], e)
 
         await asyncio.sleep(INTERVAL)
 
 
 @app.after_startup
 async def start_monitor():
-    """Запускаем мониторинг после старта FastStream"""
     asyncio.create_task(monitor())
 
 

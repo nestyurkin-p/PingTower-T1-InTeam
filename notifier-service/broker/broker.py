@@ -1,24 +1,29 @@
 from __future__ import annotations
 
 import asyncio
-import os
+import sys
+from pathlib import Path
 
 from faststream import FastStream
 from faststream.rabbit import ExchangeType, RabbitBroker, RabbitExchange, RabbitQueue
 
-RABBIT_URL = os.getenv("RABBIT_URL", "amqp://root:toor@rabbitmq:5672/")
+BASE_DIR = Path(__file__).resolve().parents[1]
+if str(BASE_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR.parent))
 
-broker = RabbitBroker(RABBIT_URL)
+from core.config import settings  # noqa: E402
+
+broker = RabbitBroker(settings.rabbit.url)
 app = FastStream(broker)
 
 pinger_exchange = RabbitExchange(
-    "pinger.events",
+    settings.rabbit.pinger_exchange,
     type=ExchangeType.TOPIC,
     durable=True,
 )
 
 llm_exchange = RabbitExchange(
-    "llm.events",
+    settings.rabbit.llm_exchange,
     type=ExchangeType.TOPIC,
     durable=True,
 )
@@ -30,19 +35,19 @@ async def startup() -> None:
     await broker.declare_exchange(llm_exchange)
 
     await broker.declare_queue(
-        RabbitQueue("pinger-to-llm-queue", durable=True, routing_key="pinger.group")
+        RabbitQueue("pinger-to-llm-queue", durable=True, routing_key=settings.rabbit.pinger_routing_key)
     )
     await broker.declare_queue(
-        RabbitQueue("pinger-to-web-queue", durable=True, routing_key="pinger.group")
+        RabbitQueue("pinger-to-web-queue", durable=True, routing_key=settings.rabbit.pinger_routing_key)
     )
     await broker.declare_queue(
-        RabbitQueue("llm-to-sender-queue", durable=True, routing_key="llm.group")
+        RabbitQueue("llm-to-sender-queue", durable=True, routing_key=settings.rabbit.llm_routing_key)
     )
     await broker.declare_queue(
-        RabbitQueue("llm-to-web-queue", durable=True, routing_key="llm.group")
+        RabbitQueue("llm-to-web-queue", durable=True, routing_key=settings.rabbit.llm_routing_key)
     )
     await broker.declare_queue(
-        RabbitQueue("llm-to-dispatcher-queue", durable=True, routing_key="llm.group")
+        RabbitQueue("llm-to-dispatcher-queue", durable=True, routing_key=settings.rabbit.llm_routing_key)
     )
 
 

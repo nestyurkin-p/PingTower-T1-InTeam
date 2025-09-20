@@ -1,3 +1,6 @@
 requests==2.*
 psycopg2
 faststream[rabbit]
+pydantic>=2.7
+pydantic-settings>=2.2
+python-dotenv>=1.0

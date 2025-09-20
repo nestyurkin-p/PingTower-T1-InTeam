@@ -1,17 +1,39 @@
 import asyncio
 import logging
+import sys
+from pathlib import Path
 
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
 from aiogram.types import BotCommand
 
-from core.config import dp, bot, app_cfg
-from core.logging import setup_logging
-from handlers.user_handlers import router as user_router
+BOT_DIR = Path(__file__).resolve().parent
+if str(BOT_DIR) not in sys.path:
+    sys.path.insert(0, str(BOT_DIR))
+ROOT_DIR = BOT_DIR.parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from core.config import settings  # noqa: E402
+from app_core import setup_logging  # noqa: E402
+from handlers.user_handlers import router as user_router  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+if not settings.telegram.token:
+    raise RuntimeError("TG_TOKEN must be configured in the global .env file")
+
+bot = Bot(token=settings.telegram.token, default=DefaultBotProperties(parse_mode="HTML"))
+dp = Dispatcher()
+
 
 async def main() -> None:
-    setup_logging(app_cfg.log_level)
+    setup_logging(settings.log_level)
+    logger.info(
+        "Bot starting with admins=%s, rabbit_url=%s",
+        settings.telegram.admin_ids or "<none>",
+        settings.rabbit.url,
+    )
     dp.include_router(user_router)
     await bot.delete_webhook(drop_pending_updates=False)
     await bot.set_my_commands([

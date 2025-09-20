@@ -1,22 +1,34 @@
-import logging
 import asyncio
 import json
-from pydantic import BaseModel
-from broker import broker, app, llm_exchange, pinger_exchange
-from faststream.rabbit import RabbitQueue
-from openai_wrapper import OpenAIWrapper
-import os
+import logging
+import sys
+from pathlib import Path
 
-# Логгирование
+from pydantic import BaseModel
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+if str(ROOT_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR.parent))
+
+from core.config import settings  # noqa: E402
+from broker import broker, app, llm_exchange, pinger_exchange  # noqa: E402
+from faststream.rabbit import RabbitQueue  # noqa: E402
+from openai_wrapper import OpenAIWrapper  # noqa: E402
+
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-# LLM клиент
-llm = OpenAIWrapper("sk-Z5H3GUqo6S4VeCy7p7YTWGCyRKVzqm16")
+llm = OpenAIWrapper(
+    api_key=settings.llm.api_key,
+    model=settings.llm.model,
+    base_url=settings.llm.base_url,
+)
 
-# Pydantic модель для валидации входящих сообщений
+
 class PingerMessage(BaseModel):
     id: int
     url: str
@@ -25,38 +37,32 @@ class PingerMessage(BaseModel):
     logs: dict
 
 
-# Подписчик: слушает сообщения от пингера
 @broker.subscriber(
-    RabbitQueue("pinger-to-llm-queue", durable=True, routing_key="pinger.group"),
+    RabbitQueue("pinger-to-llm-queue", durable=True, routing_key=settings.rabbit.pinger_routing_key),
     pinger_exchange,
 )
 async def handle_pinger_message(message: PingerMessage):
-    logging.info(f"[x] Получено сообщение от пингера для сайта {message.name} ({message.url})")
+    logging.info(f"[x] Получено сообщение от пингера для сервиса {message.name} ({message.url})")
 
     try:
-        if int(os.getenv("USE_SKIP_NOTIFICATION")) == 1:
-            logging.info("!!!!!USE_SKIP_NOTIFICATION=1")
-            # 1. Проверяем skip_notification
+        if settings.llm.use_skip_notification:
+            logging.info("USE_SKIP_NOTIFICATION=1")
             if message.com.get("skip_notification", False):
-                logging.info(f"[→] Пропуск обработки для {message.url} (skip_notification=True)")
+                logging.info(f"[→] Пропускаем уведомление для {message.url} (skip_notification=True)")
                 return
         else:
-            logging.info("!!!!!USE_SKIP_NOTIFICATION=0")
-            logging.info(f"[→] Должен быть пропуск этого сообщения,\nно USE_SKIP_NOTIFICATION=False. {message.url} (skip_notification=True)")
+            logging.info("USE_SKIP_NOTIFICATION=0")
 
         explanation = ""
 
-        # 2. Если нужно звать LLM
-        if message.com.get("llm", False):
+        if message.com.get("llm", False) and settings.llm.api_key:
             prompt = (
-                f"Проанализируй статус сайта '{message.name}' ({message.url}).\n"
-                f"Данные пингера:\n{json.dumps(message.logs, ensure_ascii=False, indent=2)}\n\n"
-                f"Объясни на русском языке, что означают эти показатели и ошибки, "
-                f"и в каком состоянии находится сайт."
+                f"Проанализируй состояние сервиса '{message.name}' ({message.url}).\n"
+                f"Последние метрики:\n{json.dumps(message.logs, ensure_ascii=False, indent=2)}\n\n"
+                f"Сформулируй краткий вывод о статусе и укажи рекомендации по устранению проблемы."  # noqa: E501
             )
             explanation = llm.send_message(prompt)
 
-        # 3. Формируем ответ
         response = {
             "id": message.id,
             "url": message.url,
@@ -66,19 +72,17 @@ async def handle_pinger_message(message: PingerMessage):
             "explanation": explanation,
         }
 
-        # 4. Публикуем в LLM exchange
         await broker.publish(
             response,
             exchange=llm_exchange,
-            routing_key="llm.group",
+            routing_key=settings.rabbit.llm_routing_key,
         )
-        logging.info(f"[✓] Обработано и отправлено для {message.url}")
+        logging.info(f"[V] Отправлено в LLM exchange для {message.url}")
 
     except Exception as e:
         logging.error(f"[!] Ошибка обработки сообщения: {e}")
 
 
-# Запуск FastStream
 async def start_faststream():
     await app.run()
 

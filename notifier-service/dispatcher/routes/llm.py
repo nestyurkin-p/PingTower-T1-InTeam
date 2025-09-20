@@ -1,30 +1,40 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-import os
 from typing import Any
 
 from faststream.rabbit import RabbitQueue
 from pydantic import ValidationError
 
+from core.config import settings
 from database import DataBase
+
+from smtp import send_email
 
 from ..models import DispatchMessage
 from ..services.antispam import AntiSpamService
 from ..services import telegram_sender
-from ..services.recipients import resolve_site_id, telegram_chats_for_site
-from ..utils.formatters import format_telegram
+from ..services.recipients import (
+    resolve_site_id,
+    telegram_chats_for_site,
+    team_email_groups_for_site,
+)
+from ..utils.formatters import (
+    format_email_bodies,
+    format_email_subject,
+    format_telegram,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def setup_llm_routes(app, exchange, db: DataBase, antispam: AntiSpamService) -> None:
     """Register FastStream subscriber for LLM verdict events."""
-    routing_key = os.getenv("LLM_ROUTING_KEY", "#")
     queue = RabbitQueue(
         "llm-to-dispatcher-queue",
         durable=True,
-        routing_key=routing_key,
+        routing_key=settings.rabbit.llm_routing_key,
     )
 
     @app.subscriber(queue, exchange)
@@ -54,10 +64,6 @@ def setup_llm_routes(app, exchange, db: DataBase, antispam: AntiSpamService) -> 
         if extra_chat is not None and extra_chat not in chats:
             chats.append(extra_chat)
 
-        if not chats:
-            logger.info("No Telegram recipients for site %s", site_id)
-            return
-
         site = await db.get_site_by_id(site_id)
         if site is None:
             logger.warning("Site %s not found during dispatch", site_id)
@@ -66,6 +72,28 @@ def setup_llm_routes(app, exchange, db: DataBase, antispam: AntiSpamService) -> 
         text = format_telegram(message, site)
         for chat_id in chats:
             await telegram_sender.send_message(chat_id, text)
+
+        email_groups = await team_email_groups_for_site(db, site_id)
+        if email_groups:
+            subject = format_email_subject(message, site)
+            plain_body, html_body = format_email_bodies(message, site)
+            tasks = [
+                send_email(addresses, subject, plain_body, html_body)
+                for _, addresses in email_groups
+            ]
+            if tasks:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for index, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        team_name, addresses = email_groups[index]
+                        logger.exception(
+                            "Failed to send email to team %s (%s): %s",
+                            team_name,
+                            addresses,
+                            result,
+                        )
+        else:
+            logger.debug("No email recipients for site %s", site_id)
 
         await antispam.mark_sent(site_id, incident_key)
 

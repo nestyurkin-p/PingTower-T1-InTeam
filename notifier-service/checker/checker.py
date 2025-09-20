@@ -1,24 +1,30 @@
 import asyncio
 import json
 import logging
+import sys
+from pathlib import Path
 from typing import Any, Dict
 
 import aio_pika
 from aio_pika import ExchangeType
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
-from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError, TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 
-from checker.config import rabbit_cfg, app_cfg, tg_cfg
-from database import db  # общий пакет БД из корня проекта
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from core.config import settings  # noqa: E402
+from database import db  # noqa: E402  # type: ignore
 
 logging.basicConfig(
-    level=getattr(logging, app_cfg.log_level.upper(), logging.INFO),
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 log = logging.getLogger(__name__)
 
-_MAX_LEN = 3800  # безопасная длина (HTML)
+_MAX_LEN = 3800  # Telegram message limit (HTML)
 
 
 def _split(text: str, limit: int = _MAX_LEN) -> list[str]:
@@ -52,7 +58,7 @@ def format_alert(payload: dict) -> str:
     target = payload.get("target") or payload.get("url") or ""
     reason = payload.get("reason") or payload.get("message") or ""
     inc = payload.get("incident_id") or payload.get("event_id") or ""
-    parts = [f"<b>[{sev}] {status}</b> — {name}"]
+    parts = [f"<b>[{sev}] {status}</b> - {name}"]
     if target:
         parts.append(target)
     if reason:
@@ -69,7 +75,7 @@ async def resolve_service_id(payload: Dict[str, Any]) -> int | None:
     url = payload.get("url") or payload.get("target") or (payload.get("metrics") or {}).get("final_url")
     if not url:
         return None
-    svc = await db.get_service_by_url(url)
+    svc = await db.get_service_by_url(url)  # type: ignore[arg-type]
     return svc.service_id if svc else None
 
 
@@ -92,7 +98,6 @@ async def _send_tg(bot: Bot, chat_id: int, text: str) -> None:
                 return
             except TelegramBadRequest as e:
                 if "message is too long" in str(e).lower() and len(part) > 1000:
-                    # на всякий случай — перестраховка (хотя мы уже делим)
                     extra = _split(part, limit=1500)
                     chunks[idx - 1: idx] = extra
                     break
@@ -107,23 +112,29 @@ async def _send_tg(bot: Bot, chat_id: int, text: str) -> None:
                 backoff = min(backoff * 2, 5.0)
 
 
-async def main():
-    # Чекер сам отправляет в TG — не трогаем бота.
-    bot = Bot(tg_cfg.token, default=DefaultBotProperties(parse_mode="HTML"))
+if not settings.telegram.token:
+    raise RuntimeError("TG_TOKEN must be configured in the global .env file")
 
-    log.info("Checker connecting to RabbitMQ %s", rabbit_cfg.url)
+async def main():
+    bot = Bot(settings.telegram.token, default=DefaultBotProperties(parse_mode="HTML"))
+
+    log.info("Checker connecting to RabbitMQ %s", settings.rabbit.url)
     conn = await aio_pika.connect_robust(
-        rabbit_cfg.url,
+        settings.rabbit.url,
         client_properties={"connection_name": "notifier-checker"},
     )
     async with conn:
         ch = await conn.channel()
         await ch.set_qos(prefetch_count=32)
 
-        alert_ex = await ch.declare_exchange(rabbit_cfg.alert_exchange, ExchangeType.TOPIC, durable=True)
+        alert_ex = await ch.declare_exchange(
+            settings.rabbit.alert_exchange,
+            ExchangeType.TOPIC,
+            durable=True,
+        )
         queue = await ch.declare_queue("", exclusive=True, auto_delete=True)
-        await queue.bind(alert_ex, routing_key=rabbit_cfg.alert_rk)
-        log.info("Consuming from %s rk=%s", rabbit_cfg.alert_exchange, rabbit_cfg.alert_rk)
+        await queue.bind(alert_ex, routing_key=settings.rabbit.alert_routing_key)
+        log.info("Consuming from %s rk=%s", settings.rabbit.alert_exchange, settings.rabbit.alert_routing_key)
 
         async with queue.iterator() as it:
             async for msg in it:
@@ -138,8 +149,7 @@ async def main():
                         log.info("Skip: cannot resolve service_id")
                         continue
 
-                    # ключевая БД-функция: все пользователи, кто следит за service_id (+ их notifications_services)
-                    targets = await db.get_users_notifications_for_service(sid)
+                    targets = await db.get_users_notifications_for_service(sid)  # type: ignore[arg-type]
                     if not targets:
                         log.info("No recipients for service_id=%s", sid)
                         continue

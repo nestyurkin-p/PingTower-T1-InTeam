@@ -1,18 +1,17 @@
-from __future__ import annotations
-
 import logging
-import os
 
-_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+from core.config import settings
 
 
-def setup_logging() -> None:
-    """Configure root logger based on LOG_LEVEL env."""
-    level_name = os.getenv("LOG_LEVEL", "INFO").upper()
-    level = getattr(logging, level_name, logging.INFO)
+def setup_logging(level: str | None = None) -> None:
+    """Configure root logger using provided level or global settings value."""
+    level_name = (level or settings.log_level).upper()
     root = logging.getLogger()
     root.handlers.clear()
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter(_LOG_FORMAT))
-    root.addHandler(handler)
-    root.setLevel(level)
+    root.setLevel(getattr(logging, level_name, logging.INFO))
+
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+    ch = logging.StreamHandler()
+    ch.setFormatter(fmt)
+    root.addHandler(ch)

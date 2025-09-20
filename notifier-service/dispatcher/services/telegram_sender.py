@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Final
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 
+from core.config import settings
+
 logger = logging.getLogger(__name__)
 
-_token: Final[str] = os.getenv("TG_TOKEN", "").strip()
+_token: Final[str] = settings.telegram.token.strip()
 _bot: Bot | None = None
 if _token:
     _bot = Bot(token=_token, default=DefaultBotProperties(parse_mode="HTML"))

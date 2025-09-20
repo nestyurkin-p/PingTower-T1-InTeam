@@ -1,21 +1,35 @@
-import asyncio, logging, uvicorn
-from fastapi import FastAPI
-from app.config import app_cfg
-from app.broker import app as stream_app
-import app.consumers  # noqa: F401
-from app.api.routes import router as api_router
-from database import db
+import asyncio
+import logging
+import sys
+from pathlib import Path
 
-logging.basicConfig(level=getattr(logging, app_cfg.log_level.upper(), logging.INFO),
-                    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+import uvicorn
+from fastapi import FastAPI
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from core.config import settings  # noqa: E402
+from app.broker import app as stream_app  # noqa: E402
+import app.consumers  # noqa: F401,E402
+from app.api.routes import router as api_router  # noqa: E402
+from database import db  # noqa: E402
+
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 
 app = FastAPI(title="backend-service")
 app.include_router(api_router)
+
 
 @app.on_event("startup")
 async def startup_event():
     await db.create_tables()
     app.state.stream_task = asyncio.create_task(stream_app.run())
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -28,5 +42,6 @@ async def shutdown_event():
         except asyncio.CancelledError:
             pass
 
+
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host=app_cfg.host, port=app_cfg.port, reload=False)
+    uvicorn.run("app.main:app", host=settings.backend.host, port=settings.backend.port, reload=False)

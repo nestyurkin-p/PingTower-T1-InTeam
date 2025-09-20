@@ -29,6 +29,8 @@ services:
     privileged: true
     networks:
       - broker_network
+    env_file:
+      - ./.env
 
   pinger:
     build:
@@ -39,34 +41,37 @@ services:
       - "6767:6767"
     depends_on:
       rabbitmq:
-        condition: service_healthy # если настроен healthcheck
+        condition: service_healthy
       broker_service:
-        condition: service_started # дефолт
+        condition: service_started
     privileged: true
-    # переменные локального окружения
+    env_file:
+      - ./.env
     environment:
-      INTERVAL: 10 # секунд
-      INPUT_DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:5432/monitor # юрл таблички отслеживаемыми вебсайтами
+      INTERVAL: ${INTERVAL}
+      INPUT_DATABASE_URL: ${INPUT_DATABASE_URL}
     networks:
       - broker_network
 
   llm_service:
-      build:
-        context: ./LLM_service
-        dockerfile: Dockerfile
-      container_name: llm_service
-      ports:
-        - "6868:6868"
-      depends_on:
-        rabbitmq:
-          condition: service_healthy # если настроен healthcheck
-        broker_service:
-          condition: service_started # дефолт
-      privileged: true
-      environment:
-        USE_SKIP_NOTIFICATION: 0 # если хотим чтоб ллм уведомления приходили по всем статусам после пингера
-      networks:
-        - broker_network
+    build:
+      context: ./LLM_service
+      dockerfile: Dockerfile
+    container_name: llm_service
+    ports:
+      - "6868:6868"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      broker_service:
+        condition: service_started
+    privileged: true
+    env_file:
+      - ./.env
+    environment:
+      USE_SKIP_NOTIFICATION: ${USE_SKIP_NOTIFICATION}
+    networks:
+      - broker_network
 
   tg_service:
     build:
@@ -77,19 +82,18 @@ services:
       - "6966:6966"
     depends_on:
       rabbitmq:
-        condition: service_healthy # если настроен healthcheck
+        condition: service_healthy
       broker_service:
-        condition: service_started # дефолт
+        condition: service_started
     privileged: true
+    env_file:
+      - ./.env
     environment:
-      # Telegram
-      TG_TOKEN: 8368944259:AAHj-ivSsU-6GVV7nG4Ai1KFpNT6tKzIemM
-      # Redis
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
-      # Logging
-      LOG_LEVEL: INFO
+      TG_TOKEN: ${TG_TOKEN}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_DB: ${REDIS_DB}
+      LOG_LEVEL: ${LOG_LEVEL}
     networks:
       - broker_network
 
@@ -101,6 +105,8 @@ services:
        - "6379:6379"
     networks:
       - broker_network
+    env_file:
+      - ./.env
 
   example_service:
     build:
@@ -111,17 +117,16 @@ services:
       - "6969:6969"
     depends_on:
       rabbitmq:
-        condition: service_healthy # если настроен healthcheck
+        condition: service_healthy
       broker_service:
-        condition: service_started # дефолт
+        condition: service_started
     privileged: true
     networks:
       - broker_network
+    env_file:
+      - ./.env
 
 networks:
   broker_network:
     driver: bridge
     external: true
-
-  
-
