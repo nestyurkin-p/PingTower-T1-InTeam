@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from .models import Base, Site, Team
+from .models import Base, Site, Team, SiteLog
 from core.config import TelegramSettings
 
 
@@ -325,3 +326,48 @@ class DataBase:
                 select(Site).where(Site.id.in_(site_ids)).order_by(Site.name, Site.id)
             )
             return list(result.scalars().all())
+
+    async def add_site_log(
+            self,
+            *,
+            id: int,
+            url: str,
+            name: str,
+            traffic_light: str | None,
+            timestamp: datetime,
+            http_status: int | None = None,
+            latency_ms: int | None = None,
+            ping_ms: float | None = None,
+            ssl_days_left: int | None = None,
+            dns_resolved: int,
+            redirects: int | None = None,
+            errors_last: int | None = None,
+            ping_interval: int,
+    ) -> int:
+        """Insert a new log entry into site_logs table and return its id."""
+        if not url:
+            raise ValueError("url must be provided")
+        if not name:
+            raise ValueError("name must be provided")
+        if ping_interval <= 0:
+            raise ValueError("ping_interval must be positive")
+        async with self.async_session() as session:
+            async with session.begin():
+                log = SiteLog(
+                    id=id,
+                    url=url,
+                    name=name,
+                    traffic_light=traffic_light,
+                    timestamp=timestamp,
+                    http_status=http_status,
+                    latency_ms=latency_ms,
+                    ping_ms=ping_ms,
+                    ssl_days_left=ssl_days_left,
+                    dns_resolved=dns_resolved,
+                    redirects=redirects,
+                    errors_last=errors_last,
+                    ping_interval=ping_interval,
+                )
+                session.add(log)
+                await session.flush()
+                return log.id
