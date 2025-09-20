@@ -17,6 +17,7 @@ DATABASE_URL = os.getenv("INPUT_DATABASE_URL")
 CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "clickhouse")
 CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", "8123"))
 CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "monitor")
+NOTIFY_ALWAYS = int(os.getenv("NOTIFY_ALWAYS", "0"))  # 0 = только при изменениях, 1 = всегда
 
 # ClickHouse клиент
 ch_client = clickhouse_connect.get_client(
@@ -103,7 +104,12 @@ async def monitor_site(site, stop_event: asyncio.Event):
             history = history[-10:]
 
             changed = site["last_traffic_light"] != traffic_light
-            skip_notification = not changed
+
+            # если NOTIFY_ALWAYS=1 → всегда уведомляем
+            if NOTIFY_ALWAYS == 1:
+                skip_notification = False
+            else:
+                skip_notification = not changed
 
             record = {
                 "id": site_id,

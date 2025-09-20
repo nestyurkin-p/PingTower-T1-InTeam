@@ -37,17 +37,6 @@ async def handle_pinger_message(message: PingerMessage):
     logging.info(f"[x] Получено сообщение от пингера для сайта {message.name} ({message.url})")
 
     try:
-        # 1. Проверяем skip_notification, если USE_SKIP_NOTIFICATION=1
-        if USE_SKIP_NOTIFICATION == 1:
-            if message.com.get("skip_notification", False):
-                logging.info(f"[→] Пропуск обработки для {message.url} (skip_notification=True)")
-                return
-        else:
-            logging.info(
-                f"[→] USE_SKIP_NOTIFICATION=0, сообщение обрабатывается всегда "
-                f"(даже если skip_notification=True для {message.url})"
-            )
-
         explanation = ""
 
         # 2. Если нужно звать LLM

@@ -32,6 +32,8 @@ services:
     environment:
       INTERVAL: 60
       INPUT_DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:5432/monitor
+
+      NOTIFY_ALWAYS: 1
     networks:
       - broker_network
 
@@ -46,8 +48,7 @@ services:
         rabbitmq:
           condition: service_healthy # если настроен healthcheck
       privileged: true
-      environment:
-        USE_SKIP_NOTIFICATION: 0 # если хотим чтоб ллм уведомления приходили по всем статусам после пингера
+  
       networks:
         - broker_network
 
