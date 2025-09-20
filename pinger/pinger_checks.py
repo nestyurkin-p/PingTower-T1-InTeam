@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
-import socket, ssl, datetime as dt, requests, re, subprocess
+import socket
+import ssl
+import datetime as dt
+import requests
 from urllib.parse import urlparse
 from time import strftime
+import logging
+from ping3 import ping
 
 DEFAULT_TIMEOUT = 10
 DEFAULT_HEADERS = {"User-Agent": "Pinger/2.0 (+healthcheck)"}
@@ -22,19 +27,13 @@ def fetch_cert_expiry(hostname: str, port: int = 443, timeout: int = 10) -> int 
 
 
 def check_ping(hostname: str) -> float | None:
-    """Пробуем ping, возвращаем среднее время (мс) или None"""
+    """ICMP ping через ping3, возвращает RTT в мс (округлено до 2 знаков) или None"""
     try:
-        result = subprocess.run(
-            ["ping", "-c", "1", "-W", str(DEFAULT_TIMEOUT), hostname],
-            capture_output=True, text=True
-        )
-        if result.returncode != 0:
-            return None
-        match = re.search(r"time[=<](\d+(?:\.\d+)?) ms", result.stdout)
-        if match:
-            return float(match.group(1))
-    except Exception:
-        pass
+        rtt = ping(hostname, timeout=3, unit="ms")
+        if rtt is not None:
+            return round(float(rtt), 2)  # 👈 округляем
+    except Exception as e:
+        logging.warning(f"Ping error: {e}")
     return None
 
 
@@ -51,7 +50,6 @@ def traffic_light_from_history(history: list[dict], current: dict) -> str:
     dns_resolved = current.get("dns_resolved")
     redirects = current.get("redirects")
 
-    # История последних 5 проверок (включая текущую)
     last5 = (history[-4:] if history else []) + [current]
     statuses = [h.get("http_status") for h in last5]
 
@@ -72,16 +70,16 @@ def traffic_light_from_history(history: list[dict], current: dict) -> str:
         return "red"
     if latency_ms > 2000:
         return "red"
-    if latency_ms > 800:
+    if latency_ms > 1000:
         return "orange"
 
     # --- Ping ---
     if ping_ms is not None:
-        if len(last5) >= 2 and all(h.get("ping_ms", 0) and h["ping_ms"] > 800 for h in last5[-2:]):
+        if len(last5) >= 2 and all(h.get("ping_ms", 0) and h["ping_ms"] > 1200 for h in last5[-2:]):
             return "red"
-        if ping_ms > 800:
+        if ping_ms > 1200:
             return "red"
-        if ping_ms > 150:
+        if ping_ms > 400:
             return "orange"
 
     # --- SSL ---

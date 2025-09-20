@@ -2,3 +2,4 @@ requests==2.*
 psycopg2
 faststream[rabbit]
 clickhouse-connect
+ping3

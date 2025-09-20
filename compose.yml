@@ -16,6 +16,27 @@ services:
       timeout: 10s
       retries: 3
 
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: monitor
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres/init:/docker-entrypoint-initdb.d   # 👈 тут будет твой init.sql
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d monitor"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - broker_network
+
   pinger:
     build:
       context: ./pinger
@@ -27,13 +48,14 @@ services:
       rabbitmq:
         condition: service_healthy
       clickhouse:
-        condition: service_started   # 👈 ждать старта ClickHouse
+        condition: service_started
+      postgres:                                # 👈 ждать Postgres
+        condition: service_healthy
     privileged: true
     environment:
       INTERVAL: 60
-      INPUT_DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:5432/monitor
-
-      NOTIFY_ALWAYS: 1
+      INPUT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/monitor   # 👈 теперь так
+      NOTIFY_ALWAYS: 0
     networks:
       - broker_network
 
@@ -102,13 +124,36 @@ services:
     volumes:
       - ./clickhouse_logs:/var/log/clickhouse-server
       - ./clickhouse/init:/docker-entrypoint-initdb.d  # 👈 тут твои init.sql
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query=SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     networks:
       - broker_network
 
+##### BACKEND ###################
+
+  api_service:
+    build:
+      context: ./api_service
+      dockerfile: Dockerfile
+    container_name: api_service
+    ports:
+      - "8000:8000"
+    depends_on:
+      clickhouse:
+        condition: service_healthy   # ✅ ждать пока ClickHouse будет healthy
+    networks:
+      - broker_network
+
+#################################
 networks:
   broker_network:
     driver: bridge
     external: true
 
+volumes:
+  postgres_data:
   
 
