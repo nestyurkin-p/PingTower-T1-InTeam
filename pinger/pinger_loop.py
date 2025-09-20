@@ -3,8 +3,10 @@ import json
 import logging
 import psycopg2
 import asyncio
+import clickhouse_connect
 from broker import broker, app, pinger_exchange
 from pinger_checks import run_checks
+from datetime import datetime
 
 logging.basicConfig(
     level=logging.INFO,
@@ -12,7 +14,37 @@ logging.basicConfig(
 )
 
 DATABASE_URL = os.getenv("INPUT_DATABASE_URL")
+CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "clickhouse")
+CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", "8123"))
+CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "monitor")
 
+# ClickHouse клиент
+ch_client = clickhouse_connect.get_client(
+    host=CLICKHOUSE_HOST,
+    port=CLICKHOUSE_PORT,
+    username="default",
+    password=""
+)
+
+# создаём таблицу если нет
+ch_client.command(f"""
+CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.site_logs (
+    id UInt64,
+    url String,
+    name String,
+    timestamp DateTime,
+    traffic_light String,
+    http_status Nullable(Int32),
+    latency_ms Nullable(Int32),
+    ping_ms Nullable(Float64),
+    ssl_days_left Nullable(Int32),
+    dns_resolved UInt8,
+    redirects Nullable(Int32),
+    errors_last Nullable(Int32),
+    ping_interval UInt32
+) ENGINE = MergeTree()
+ORDER BY (url, timestamp)
+""")
 
 def fetch_sites():
     """Загрузка всех сайтов из таблицы"""
@@ -31,11 +63,10 @@ def fetch_sites():
                     "com": r[3],
                     "last_traffic_light": r[4],
                     "history": r[5] or [],
-                    "ping_interval": r[6] or 30,  # fallback на 30 секунд
+                    "ping_interval": r[6] or 30,
                 }
                 for r in rows
             }
-
 
 def update_site_status(site_id, traffic_light, history):
     """Обновляем сохранённый traffic_light и историю в sites"""
@@ -48,10 +79,9 @@ def update_site_status(site_id, traffic_light, history):
                     history=%s
                 WHERE id=%s
                 """,
-                (traffic_light, json.dumps(history), site_id),
+                (traffic_light, json.dumps(history, ensure_ascii=False), site_id),
             )
             conn.commit()
-
 
 async def monitor_site(site, stop_event: asyncio.Event):
     """Отдельная таска для одного сайта"""
@@ -64,18 +94,14 @@ async def monitor_site(site, stop_event: asyncio.Event):
 
     while not stop_event.is_set():
         try:
-            # берём последние 4 записи из истории
             history = site["history"][-4:] if site["history"] else []
 
-            # делаем проверку
             logs = run_checks(url, history)
             traffic_light = logs["traffic_light"]
 
-            # обновляем историю (не больше 10 записей)
             history.append(logs)
             history = history[-10:]
 
-            # проверка изменений
             changed = site["last_traffic_light"] != traffic_light
             skip_notification = not changed
 
@@ -87,13 +113,35 @@ async def monitor_site(site, stop_event: asyncio.Event):
                 "logs": logs,
             }
 
-            # сохраняем статус в БД
             update_site_status(site_id, traffic_light, history)
 
-            # локальный вывод
+            # запись в ClickHouse
+            ch_client.insert(
+                f"{CLICKHOUSE_DB}.site_logs",
+                [[
+                    site_id,
+                    url,
+                    name,
+                    datetime.strptime(logs["timestamp"], "%Y-%m-%dT%H:%M:%S"),
+                    traffic_light,
+                    logs.get("http_status"),
+                    logs.get("latency_ms"),
+                    logs.get("ping_ms"),
+                    logs.get("ssl_days_left"),
+                    1 if logs.get("dns_resolved") else 0,
+                    logs.get("redirects"),
+                    logs.get("errors_last"),
+                    ping_interval,
+                ]],
+                column_names=[
+                    "id", "url", "name", "timestamp", "traffic_light",
+                    "http_status", "latency_ms", "ping_ms", "ssl_days_left",
+                    "dns_resolved", "redirects", "errors_last", "ping_interval"
+                ]
+            )
+
             print(json.dumps(record, ensure_ascii=False), flush=True)
 
-            # публикация в RabbitMQ (если не skip_notification)
             if not skip_notification:
                 await broker.publish(
                     record,
@@ -110,10 +158,9 @@ async def monitor_site(site, stop_event: asyncio.Event):
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=ping_interval)
         except asyncio.TimeoutError:
-            pass  # прошло время — продолжаем цикл
+            pass
 
     logging.info(f"⏹ Мониторинг остановлен для {name} ({url})")
-
 
 async def site_manager():
     """Менеджер: следит за актуальным списком сайтов"""
@@ -122,12 +169,10 @@ async def site_manager():
     while True:
         sites = fetch_sites()
 
-        # добавляем/обновляем сайты
         for site_id, site in sites.items():
             existing = running_tasks.get(site_id)
 
             if existing:
-                # если изменился интервал → перезапуск таски
                 if existing["ping_interval"] != site["ping_interval"]:
                     logging.info(f"[↻] Перезапуск сайта {site['name']} (новый интервал)")
                     existing["stop_event"].set()
@@ -141,7 +186,6 @@ async def site_manager():
                         "ping_interval": site["ping_interval"],
                     }
             else:
-                # новый сайт → запуск
                 stop_event = asyncio.Event()
                 task = asyncio.create_task(monitor_site(site, stop_event))
                 running_tasks[site_id] = {
@@ -150,7 +194,6 @@ async def site_manager():
                     "ping_interval": site["ping_interval"],
                 }
 
-        # удаляем сайты, которых больше нет
         for site_id in list(running_tasks.keys()):
             if site_id not in sites:
                 logging.info(f"[-] Сайт {site_id} удалён из БД — останавливаю таску")
@@ -160,12 +203,9 @@ async def site_manager():
 
         await asyncio.sleep(1)
 
-
 @app.after_startup
 async def start_monitor():
-    """Запускаем менеджер"""
     asyncio.create_task(site_manager())
-
 
 if __name__ == "__main__":
     asyncio.run(app.run())
