@@ -16,20 +16,6 @@ services:
       timeout: 10s
       retries: 3
 
-  broker_service:
-    build:
-      context: ./broker
-      dockerfile: Dockerfile
-    container_name: broker_service
-    ports:
-      - "1234:1234"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-    privileged: true
-    networks:
-      - broker_network
-
   pinger:
     build:
       context: ./pinger
@@ -40,8 +26,6 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy # если настроен healthcheck
-      broker_service:
-        condition: service_started # дефолт
     privileged: true
     # переменные локального окружения
     environment:
@@ -60,8 +44,6 @@ services:
       depends_on:
         rabbitmq:
           condition: service_healthy # если настроен healthcheck
-        broker_service:
-          condition: service_started # дефолт
       privileged: true
       environment:
         USE_SKIP_NOTIFICATION: 0 # если хотим чтоб ллм уведомления приходили по всем статусам после пингера
@@ -78,8 +60,6 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy # если настроен healthcheck
-      broker_service:
-        condition: service_started # дефолт
     privileged: true
     environment:
       # Telegram
@@ -112,8 +92,6 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy # если настроен healthcheck
-      broker_service:
-        condition: service_started # дефолт
     privileged: true
     networks:
       - broker_network
