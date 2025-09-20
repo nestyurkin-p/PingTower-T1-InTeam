@@ -4,13 +4,13 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
-WORKDIR /app/backend
+WORKDIR /app/notifier-service/dispatcher
 
-COPY backend/requirements.txt /tmp/requirements.txt
+COPY notifier-service/dispatcher/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY core /app/core
 COPY database /app/database
-COPY backend /app/backend
+COPY notifier-service /app/notifier-service
 
-CMD ["python", "-m", "app.main"]
+CMD ["python", "main.py"]

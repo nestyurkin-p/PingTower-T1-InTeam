@@ -1,10 +1,19 @@
 FROM python:3.13-slim
 
-RUN pip install --no-cache-dir "poetry"
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app
 
-COPY pyproject.toml poetry.lock ./
-RUN poetry config --no-cache virtualenvs.create false && poetry install --no-cache --no-root --no-interaction --no-ansi --only main
+RUN pip install --no-cache-dir poetry
 
-COPY . .
+WORKDIR /app/broker
 
-CMD ["poetry", "run", "python",  "broker.py"]
+COPY broker/pyproject.toml /app/broker/pyproject.toml
+COPY broker/poetry.lock /app/broker/poetry.lock
+RUN poetry config --no-cache virtualenvs.create false \
+    && poetry install --no-cache --no-root --no-interaction --no-ansi --only main
+
+COPY core /app/core
+COPY broker /app/broker
+
+CMD ["poetry", "run", "python", "broker.py"]

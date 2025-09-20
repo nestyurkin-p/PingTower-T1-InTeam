@@ -1,132 +1,168 @@
+version: "3.9"
+
 services:
+  postgres:
+    build:
+      context: .
+      dockerfile: database/Dockerfile
+      args:
+        POSTGRES_USER: ${POSTGRES_USER}
+        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+        POSTGRES_DB: ${POSTGRES_DB}
+    container_name: postgres
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq
+    env_file:
+      - ./.env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     ports:
       - "5672:5672"
       - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: "root"
-      RABBITMQ_DEFAULT_PASS: "toor"
-    networks:
-      - broker_network
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmqctl", "status"]
-      interval: 5s
-      timeout: 10s
-      retries: 3
-
-  broker_service:
-    build:
-      context: ./broker
-      dockerfile: Dockerfile
-    container_name: broker_service
-    ports:
-      - "1234:1234"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-    privileged: true
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
-      - broker_network
-    env_file:
-      - ./.env
-
-  pinger:
-    build:
-      context: ./pinger
-      dockerfile: Dockerfile
-    container_name: pinger
-    ports:
-      - "6767:6767"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      broker_service:
-        condition: service_started
-    privileged: true
-    env_file:
-      - ./.env
-    environment:
-      INTERVAL: ${INTERVAL}
-      INPUT_DATABASE_URL: ${INPUT_DATABASE_URL}
-    networks:
-      - broker_network
-
-  llm_service:
-    build:
-      context: ./LLM_service
-      dockerfile: Dockerfile
-    container_name: llm_service
-    ports:
-      - "6868:6868"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      broker_service:
-        condition: service_started
-    privileged: true
-    env_file:
-      - ./.env
-    environment:
-      USE_SKIP_NOTIFICATION: ${USE_SKIP_NOTIFICATION}
-    networks:
-      - broker_network
-
-  tg_service:
-    build:
-      context: ./notifier-service/tg-bot
-      dockerfile: Dockerfile
-    container_name: tg_service
-    ports:
-      - "6966:6966"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      broker_service:
-        condition: service_started
-    privileged: true
-    env_file:
-      - ./.env
-    environment:
-      TG_TOKEN: ${TG_TOKEN}
-      REDIS_HOST: ${REDIS_HOST}
-      REDIS_PORT: ${REDIS_PORT}
-      REDIS_DB: ${REDIS_DB}
-      LOG_LEVEL: ${LOG_LEVEL}
-    networks:
-      - broker_network
+      - internal
 
   redis:
     image: redis:7-alpine
     container_name: redis
-    restart: unless-stopped
     ports:
-       - "6379:6379"
+      - "6379:6379"
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
-      - broker_network
+      - internal
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: backend
     env_file:
       - ./.env
-
-  example_service:
-    build:
-      context: ./example
-      dockerfile: Dockerfile
-    container_name: example_service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     ports:
-      - "6969:6969"
+      - "8000:8000"
+    restart: unless-stopped
+    networks:
+      - internal
+
+  pinger:
+    build:
+      context: .
+      dockerfile: pinger/Dockerfile
+    container_name: pinger
+    env_file:
+      - ./.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
+
+  llm_worker:
+    build:
+      context: .
+      dockerfile: LLM_service/Dockerfile
+    container_name: llm_worker
+    env_file:
+      - ./.env
     depends_on:
       rabbitmq:
         condition: service_healthy
-      broker_service:
-        condition: service_started
-    privileged: true
+    restart: unless-stopped
     networks:
-      - broker_network
+      - internal
+
+  dispatcher:
+    build:
+      context: .
+      dockerfile: notifier-service/dispatcher/Dockerfile
+    container_name: dispatcher
     env_file:
       - ./.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
+
+  checker:
+    build:
+      context: .
+      dockerfile: notifier-service/checker/Dockerfile
+    container_name: checker
+    env_file:
+      - ./.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
+
+  tg_bot:
+    build:
+      context: .
+      dockerfile: notifier-service/tg-bot/Dockerfile
+    container_name: tg_bot
+    env_file:
+      - ./.env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - internal
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
 
 networks:
-  broker_network:
+  internal:
     driver: bridge
-    external: true

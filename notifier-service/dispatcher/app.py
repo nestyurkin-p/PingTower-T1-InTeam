@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from typing import cast
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 ROOT_DIR = BASE_DIR.parent
@@ -18,17 +19,17 @@ from .utils.log import setup_logging  # noqa: E402
 setup_logging()
 
 from broker.broker import app as faststream_app, llm_exchange  # type: ignore  # noqa: E402
-from database import DataBase  # noqa: E402
+from database import DataBase, db as shared_db  # noqa: E402
 
 from .routes.llm import setup_llm_routes  # noqa: E402
 from .services.antispam import AntiSpamService  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-if not settings.database.main_url:
+if shared_db is None:
     raise RuntimeError("DATABASE_URL must be configured in the global settings")
 
-db = DataBase(settings.database.main_url)
+db = cast(DataBase, shared_db)
 
 antispam = AntiSpamService(settings.dispatcher.grouping_window_sec)
 
