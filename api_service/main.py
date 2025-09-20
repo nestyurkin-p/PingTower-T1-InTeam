@@ -4,6 +4,12 @@ import clickhouse_connect
 import urllib.parse
 import os
 from datetime import datetime
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import psycopg2
+import os
+
 
 CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "clickhouse")
 CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", "8123"))
@@ -18,6 +24,11 @@ def get_client():
         password="",
         database=CLICKHOUSE_DB,
     )
+    
+POSTGRES_URL = os.getenv(
+    "INPUT_DATABASE_URL",
+    "postgresql://postgres:postgres@postgres:5432/monitor"
+)
 
 app = FastAPI()
 
@@ -153,3 +164,27 @@ def get_logs_aggregated(
         }
 
     return {"summary": summary, "buckets": buckets}
+
+class SiteIn(BaseModel):
+    url: str
+    name: str
+
+@app.post("/sites")
+def create_site(site: SiteIn):
+    conn = psycopg2.connect(POSTGRES_URL)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO sites (url, name)
+        VALUES (%s, %s)
+        ON CONFLICT (url) DO UPDATE
+            SET name = EXCLUDED.name
+        RETURNING id, url, name
+        """,
+        (site.url, site.name)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"id": row[0], "url": row[1], "name": row[2]}
