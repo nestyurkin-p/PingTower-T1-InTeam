@@ -130,8 +130,9 @@ python alert_message_test.py
 Для локального тестирования можно заполнить базу минимальными объектами (сайт Google и команды SRE/QA):
 
 ```bash
-python -m scripts.seed_demo_data
+python -m database.seed_demo_data
 ```
 
 Скрипт использует общую конфигурацию (`.env`) и создаёт недостающие таблицы перед добавлением данных.
+
 
