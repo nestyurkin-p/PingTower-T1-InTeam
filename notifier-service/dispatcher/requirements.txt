@@ -1,0 +1,8 @@
+faststream[rabbit]==0.5.*
+aiogram==3.15.0
+SQLAlchemy>=2.0
+asyncpg>=0.29
+pydantic>=2.7
+pydantic-settings>=2.2
+aiosmtplib>=2.0
+python-dotenv>=1.0

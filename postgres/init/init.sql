@@ -30,3 +30,22 @@ CREATE TRIGGER trg_sites_updated_at
 BEFORE UPDATE ON sites
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
+
+
+CREATE TABLE IF NOT EXISTS site_logs (
+    id SERIAL PRIMARY KEY,
+    site_id INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    name TEXT NOT NULL,
+    traffic_light TEXT,
+    http_status INTEGER,
+    latency_ms INTEGER,
+    ping_ms DOUBLE PRECISION,
+    ssl_days_left INTEGER,
+    dns_resolved BOOLEAN,
+    redirects INTEGER,
+    errors_last INTEGER,
+    ping_interval INTEGER,
+    raw_logs JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW()
+);

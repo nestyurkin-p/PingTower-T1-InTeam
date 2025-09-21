@@ -1,14 +1,24 @@
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
 from aiogram.types import BotCommand
-from pydantic import BaseModel
 
-from core.config import dp, bot, setup_logging
-from handlers import router as user_handlers
-from utils import subscriptions
+BOT_DIR = Path(__file__).resolve().parent
+if str(BOT_DIR) not in sys.path:
+    sys.path.insert(0, str(BOT_DIR))
+ROOT_DIR = BOT_DIR.parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-from broker import broker, app, llm_exchange
-from faststream.rabbit import RabbitQueue
+from core.config import settings  # noqa: E402
+from app_core import setup_logging  # noqa: E402
+from handlers.admin import router as admin_router  # noqa: E402
+from handlers.user_handlers import router as user_router  # noqa: E402
+from database import db  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -96,25 +106,27 @@ async def handle_alert(message: AlertMessage):
 
 
 async def main() -> None:
-    setup_logging()
-
-    dp.include_router(user_handlers)
-
-    # команды для бота
+    setup_logging(settings.log_level)
+    if db is None:
+        raise RuntimeError("Database connection is not configured")
+    logger.info("Ensuring database schema is up to date")
+    await db.create_tables()
+    logger.info(
+        "Bot starting with admins=%s, rabbit_url=%s",
+        settings.telegram.admin_ids or "<none>",
+        settings.rabbit.url,
+    )
+    dp.include_router(admin_router)
+    dp.include_router(user_router)
     await bot.delete_webhook(drop_pending_updates=False)
     await bot.set_my_commands([
-        BotCommand(command="start", description="Начало работы"),
-        BotCommand(command="stop", description="Отписаться от уведомлений"),
-        BotCommand(command="ping", description="Проверка связи"),
+        BotCommand(command="start", description="Subscribe to notifications"),
+        BotCommand(command="stop", description="Unsubscribe from notifications"),
+        BotCommand(command="ping", description="Check bot availability"),
     ])
 
     logger.info("Start polling")
-
-    # запускаем aiogram и FastStream вместе
-    await asyncio.gather(
-        dp.start_polling(bot),
-        app.run(),   # FastStream
-    )
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
