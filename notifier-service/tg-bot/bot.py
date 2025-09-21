@@ -31,6 +31,18 @@ async def handle_alert(message: AlertMessage):
     logger.info(f"[x] Получено сообщение для TG: {message.url}")
 
     try:
+        tg_flag = message.com.get("tg")
+
+        try:
+            tg_flag = int(tg_flag)
+        except (TypeError, ValueError):
+            tg_flag = 0
+
+        if tg_flag != 1:
+            logger.info(f"[→] Сообщение для {message.url} пропущено (com.tg != 1)")
+            return
+
+
         logs = message.logs or {}
 
         # Значения из logs
@@ -70,10 +82,8 @@ async def handle_alert(message: AlertMessage):
 
         for cid in chat_ids:
             try:
-                # 1. Всегда отправляем статистику
                 await bot.send_message(cid, stats_text, parse_mode="HTML")
 
-                # 2. Если есть explanation — отправляем его вторым сообщением
                 if message.explanation:
                     await bot.send_message(cid, message.explanation, parse_mode="HTML")
 
@@ -82,6 +92,7 @@ async def handle_alert(message: AlertMessage):
 
     except Exception as e:
         logger.exception("Ошибка обработки сообщения: %s", e)
+
 
 
 async def main() -> None:
