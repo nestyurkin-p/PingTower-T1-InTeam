@@ -1,6 +1,4 @@
-pika
-openai==1.107
-faststream[rabbit]
+aiosmtplib>=2.0
 pydantic>=2.7
 pydantic-settings>=2.2
 python-dotenv>=1.0

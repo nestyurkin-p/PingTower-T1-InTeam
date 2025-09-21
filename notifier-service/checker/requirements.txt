@@ -1,4 +1,0 @@
-aio-pika==9.4.3
-environs==11.2.1
-SQLAlchemy==2.0.34
-asyncpg==0.29.0

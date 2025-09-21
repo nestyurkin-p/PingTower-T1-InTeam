@@ -1,217 +1,259 @@
-import os
+import asyncio
 import json
 import logging
+import sys
+from pathlib import Path
+from time import strftime
+
 import psycopg2
-import asyncio
-import clickhouse_connect
-from broker import broker, app, pinger_exchange
-from pinger_checks import run_checks
-from datetime import datetime
+
+try:
+    import clickhouse_connect  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    clickhouse_connect = None
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+if str(ROOT_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR.parent))
+
+from core.config import settings  # noqa: E402
+from broker import app, broker, pinger_exchange  # noqa: E402
+from pinger_checks import CHECKS as DEFAULT_CHECKS, run_checks  # noqa: E402
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-DATABASE_URL = os.getenv("INPUT_DATABASE_URL")
-CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "clickhouse")
-CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", "8123"))
-CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "monitor")
-NOTIFY_ALWAYS = int(os.getenv("NOTIFY_ALWAYS", "0"))  # 0 = только при изменениях, 1 = всегда
+_ASYNC_MAIN_URL = settings.database.main_url or ""
+if _ASYNC_MAIN_URL.startswith("postgresql+asyncpg://"):
+    _SYNC_MAIN_URL = "postgresql://" + _ASYNC_MAIN_URL[len("postgresql+asyncpg://"):]
+else:
+    _SYNC_MAIN_URL = _ASYNC_MAIN_URL
 
-# ClickHouse клиент
-ch_client = clickhouse_connect.get_client(
-    host=CLICKHOUSE_HOST,
-    port=CLICKHOUSE_PORT,
-    username="default",
-    password=""
-)
+DATABASE_URL = settings.pinger.input_database_url or _SYNC_MAIN_URL or "postgresql://postgres:postgres@postgres:5432/pingtower"
+INTERVAL = settings.pinger.interval_sec
+NOTIFY_ALWAYS = settings.pinger.notify_always
 
-# создаём таблицу если нет
-ch_client.command(f"""
-CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.site_logs (
-    id UInt64,
-    url String,
-    name String,
-    timestamp DateTime,
-    traffic_light String,
-    http_status Nullable(Int32),
-    latency_ms Nullable(Int32),
-    ping_ms Nullable(Float64),
-    ssl_days_left Nullable(Int32),
-    dns_resolved UInt8,
-    redirects Nullable(Int32),
-    errors_last Nullable(Int32),
-    ping_interval UInt32
-) ENGINE = MergeTree()
-ORDER BY (url, timestamp)
-""")
+CLICKHOUSE_HOST = settings.clickhouse.host
+CLICKHOUSE_PORT = settings.clickhouse.port
+CLICKHOUSE_DB = settings.clickhouse.database
+CLICKHOUSE_USER = settings.clickhouse.user
+CLICKHOUSE_PASSWORD = settings.clickhouse.password
+CLICKHOUSE_TABLE = settings.clickhouse.table
+CLICKHOUSE_ENABLED = bool(settings.clickhouse.enabled and clickhouse_connect is not None)
+CH_CLIENT = None
+
+
+def _init_clickhouse() -> None:
+    global CH_CLIENT
+    if not CLICKHOUSE_ENABLED:
+        if CLICKHOUSE_HOST and clickhouse_connect is None:
+            logging.warning("clickhouse-connect is not installed; disabling ClickHouse export")
+        return
+
+    CH_CLIENT = clickhouse_connect.get_client(
+        host=CLICKHOUSE_HOST,
+        port=CLICKHOUSE_PORT,
+        username=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        database=CLICKHOUSE_DB,
+    )
+    CH_CLIENT.command(
+        f"""
+        CREATE TABLE IF NOT EXISTS {CLICKHOUSE_TABLE} (
+            id UInt64,
+            url String,
+            name String,
+            timestamp DateTime,
+            traffic_light String,
+            http_status Nullable(Int32),
+            latency_ms Nullable(Int32),
+            ping_ms Nullable(Float64),
+            ssl_days_left Nullable(Int32),
+            dns_resolved UInt8,
+            redirects Nullable(Int32),
+            errors_last Nullable(Int32),
+            ping_interval UInt32
+        ) ENGINE = MergeTree()
+        ORDER BY (url, timestamp)
+        """
+    )
+
 
 def fetch_sites():
-    """Загрузка всех сайтов из таблицы"""
+    """Fetch sites configuration and status flags."""
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, url, name, com, last_traffic_light, history, ping_interval
+            cur.execute(
+                """
+                SELECT id, url, name, com, last_traffic_light, history, ping_interval,
+                       last_ok, last_status, last_rtt, skip_notification
                 FROM sites;
-            """)
+                """
+            )
             rows = cur.fetchall()
-            return {
-                r[0]: {
+            return [
+                {
                     "id": r[0],
                     "url": r[1],
                     "name": r[2],
-                    "com": r[3],
+                    "com": r[3] or {},
                     "last_traffic_light": r[4],
                     "history": r[5] or [],
-                    "ping_interval": r[6] or 30,
+                    "ping_interval": int(r[6] or 30),
+                    "last_ok": r[7],
+                    "last_status": r[8],
+                    "last_rtt": r[9],
+                    "skip_notification": r[10],
                 }
                 for r in rows
-            }
+            ]
 
-def update_site_status(site_id, traffic_light, history):
-    """Обновляем сохранённый traffic_light и историю в sites"""
+
+def update_site_status(site_id, *, ok, status, rtt, skip_notification, traffic_light, history):
+    """Persist computed status back to Postgres."""
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE sites
-                SET last_traffic_light=%s,
+                SET last_ok=%s,
+                    last_status=%s,
+                    last_rtt=%s,
+                    skip_notification=%s,
+                    last_traffic_light=%s,
                     history=%s
                 WHERE id=%s
                 """,
-                (traffic_light, json.dumps(history, ensure_ascii=False), site_id),
+                (ok, status, rtt, skip_notification, traffic_light, json.dumps(history, ensure_ascii=False), site_id),
             )
             conn.commit()
 
-async def monitor_site(site, stop_event: asyncio.Event):
-    """Отдельная таска для одного сайта"""
-    site_id = site["id"]
-    url = site["url"]
-    name = site["name"]
-    ping_interval = site["ping_interval"]
 
-    logging.info(f"▶ Запуск мониторинга {name} ({url}), интервал {ping_interval} сек")
+def write_clickhouse(record: dict, logs: dict, ping_interval: int) -> None:
+    if CH_CLIENT is None:
+        return
+    try:
+        CH_CLIENT.insert(
+            CLICKHOUSE_TABLE,
+            [[
+                int(record["id"]),
+                record["url"],
+                record["name"],
+                logs.get("timestamp") or strftime("%Y-%m-%dT%H:%M:%S"),
+                logs.get("traffic_light"),
+                logs.get("http_status"),
+                logs.get("latency_ms"),
+                logs.get("ping_ms"),
+                logs.get("ssl_days_left"),
+                1 if logs.get("dns_resolved") else 0,
+                logs.get("redirects"),
+                logs.get("errors_last"),
+                ping_interval,
+            ]],
+            column_names=[
+                "id",
+                "url",
+                "name",
+                "timestamp",
+                "traffic_light",
+                "http_status",
+                "latency_ms",
+                "ping_ms",
+                "ssl_days_left",
+                "dns_resolved",
+                "redirects",
+                "errors_last",
+                "ping_interval",
+            ],
+        )
+    except Exception as exc:  # pragma: no cover - diagnostics only
+        logging.warning("Failed to write ClickHouse row: %s", exc)
 
-    while not stop_event.is_set():
-        try:
-            history = site["history"][-4:] if site["history"] else []
 
-            logs = run_checks(url, history)
-            traffic_light = logs["traffic_light"]
+async def monitor():
+    """Run monitoring loop publishing updates to RabbitMQ."""
+    while True:
+        sites = fetch_sites()
+        logging.info("Загружено %d сервисов для проверки", len(sites))
+
+        for site in sites:
+            history = list(site["history"] or [])
+            short_history = history[-4:]
+
+            logs = run_checks(site["url"], short_history)
+            traffic_light = logs.get("traffic_light")
+            http_status = logs.get("http_status")
+            latency_ms = logs.get("latency_ms")
 
             history.append(logs)
             history = history[-10:]
 
-            changed = site["last_traffic_light"] != traffic_light
+            ok = traffic_light == "green"
+            status = http_status
+            rtt = latency_ms
 
-            # если NOTIFY_ALWAYS=1 → всегда уведомляем
-            if NOTIFY_ALWAYS == 1:
-                skip_notification = False
-            else:
-                skip_notification = not changed
+            changed = (
+                site["last_ok"] != ok
+                or site["last_status"] != status
+                or site["last_rtt"] != rtt
+            )
+            skip_notification = False if NOTIFY_ALWAYS else not changed
+
+            com = dict(site["com"] or {})
+            com["skip_notification"] = skip_notification
 
             record = {
-                "id": site_id,
-                "url": url,
-                "name": name,
-                "com": {**site["com"], "skip_notification": skip_notification},
+                "id": site["id"],
+                "url": site["url"],
+                "name": site["name"],
+                "com": com,
                 "logs": logs,
             }
 
-            update_site_status(site_id, traffic_light, history)
-
-            # запись в ClickHouse
-            ch_client.insert(
-                f"{CLICKHOUSE_DB}.site_logs",
-                [[
-                    site_id,
-                    url,
-                    name,
-                    datetime.strptime(logs["timestamp"], "%Y-%m-%dT%H:%M:%S"),
-                    traffic_light,
-                    logs.get("http_status"),
-                    logs.get("latency_ms"),
-                    logs.get("ping_ms"),
-                    logs.get("ssl_days_left"),
-                    1 if logs.get("dns_resolved") else 0,
-                    logs.get("redirects"),
-                    logs.get("errors_last"),
-                    ping_interval,
-                ]],
-                column_names=[
-                    "id", "url", "name", "timestamp", "traffic_light",
-                    "http_status", "latency_ms", "ping_ms", "ssl_days_left",
-                    "dns_resolved", "redirects", "errors_last", "ping_interval"
-                ]
+            update_site_status(
+                site["id"],
+                ok=ok,
+                status=status,
+                rtt=rtt,
+                skip_notification=skip_notification,
+                traffic_light=traffic_light,
+                history=history,
             )
 
             print(json.dumps(record, ensure_ascii=False), flush=True)
 
-            if not skip_notification:
+            if CLICKHOUSE_ENABLED:
+                write_clickhouse(record, logs, site["ping_interval"])
+
+            if skip_notification:
+                logging.info(
+                    "[→] Пропускаем уведомление для %s (изменений нет)",
+                    site["url"],
+                )
+                continue
+
+            try:
                 await broker.publish(
                     record,
                     exchange=pinger_exchange,
-                    routing_key="pinger.group",
+                    routing_key=settings.rabbit.pinger_routing_key,
                 )
-                logging.info(f"[✓] ID={site_id} отправлен в RMQ")
-            else:
-                logging.info(f"[→] Пропуск публикации ID={site_id} (skip_notification=True)")
+                logging.info("[V] ID=%s отправлено в брокер", site["id"])
+            except Exception as exc:  # pragma: no cover - diagnostics only
+                logging.error("[!] Ошибка публикации в RabbitMQ для ID=%s: %s", site["id"], exc)
 
-        except Exception as e:
-            logging.error(f"[!] Ошибка мониторинга сайта {name}: {e}")
+        await asyncio.sleep(INTERVAL)
 
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=ping_interval)
-        except asyncio.TimeoutError:
-            pass
-
-    logging.info(f"⏹ Мониторинг остановлен для {name} ({url})")
-
-async def site_manager():
-    """Менеджер: следит за актуальным списком сайтов"""
-    running_tasks: dict[int, dict] = {}
-
-    while True:
-        sites = fetch_sites()
-
-        for site_id, site in sites.items():
-            existing = running_tasks.get(site_id)
-
-            if existing:
-                if existing["ping_interval"] != site["ping_interval"]:
-                    logging.info(f"[↻] Перезапуск сайта {site['name']} (новый интервал)")
-                    existing["stop_event"].set()
-                    existing["task"].cancel()
-
-                    stop_event = asyncio.Event()
-                    task = asyncio.create_task(monitor_site(site, stop_event))
-                    running_tasks[site_id] = {
-                        "task": task,
-                        "stop_event": stop_event,
-                        "ping_interval": site["ping_interval"],
-                    }
-            else:
-                stop_event = asyncio.Event()
-                task = asyncio.create_task(monitor_site(site, stop_event))
-                running_tasks[site_id] = {
-                    "task": task,
-                    "stop_event": stop_event,
-                    "ping_interval": site["ping_interval"],
-                }
-
-        for site_id in list(running_tasks.keys()):
-            if site_id not in sites:
-                logging.info(f"[-] Сайт {site_id} удалён из БД — останавливаю таску")
-                running_tasks[site_id]["stop_event"].set()
-                running_tasks[site_id]["task"].cancel()
-                del running_tasks[site_id]
-
-        await asyncio.sleep(1)
 
 @app.after_startup
 async def start_monitor():
-    asyncio.create_task(site_manager())
+    _init_clickhouse()
+    asyncio.create_task(monitor())
+
 
 if __name__ == "__main__":
     asyncio.run(app.run())

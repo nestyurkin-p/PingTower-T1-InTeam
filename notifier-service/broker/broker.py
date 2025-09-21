@@ -7,11 +7,9 @@ from pathlib import Path
 from faststream import FastStream
 from faststream.rabbit import ExchangeType, RabbitBroker, RabbitExchange, RabbitQueue
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-if str(ROOT_DIR.parent) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR.parent))
+BASE_DIR = Path(__file__).resolve().parents[1]
+if str(BASE_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR.parent))
 
 from core.config import settings  # noqa: E402
 
@@ -32,7 +30,7 @@ llm_exchange = RabbitExchange(
 
 
 @app.after_startup
-async def startup():
+async def startup() -> None:
     await broker.declare_exchange(pinger_exchange)
     await broker.declare_exchange(llm_exchange)
 
@@ -42,16 +40,18 @@ async def startup():
     await broker.declare_queue(
         RabbitQueue("pinger-to-web-queue", durable=True, routing_key=settings.rabbit.pinger_routing_key)
     )
-
     await broker.declare_queue(
         RabbitQueue("llm-to-sender-queue", durable=True, routing_key=settings.rabbit.llm_routing_key)
     )
     await broker.declare_queue(
         RabbitQueue("llm-to-web-queue", durable=True, routing_key=settings.rabbit.llm_routing_key)
     )
+    await broker.declare_queue(
+        RabbitQueue("llm-to-dispatcher-queue", durable=True, routing_key=settings.rabbit.llm_routing_key)
+    )
 
 
-async def start_faststream():
+async def start_faststream() -> None:
     await app.run()
 
 

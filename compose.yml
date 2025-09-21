@@ -1,159 +1,180 @@
-services:
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: "root"
-      RABBITMQ_DEFAULT_PASS: "toor"
-    networks:
-      - broker_network
-    healthcheck:
-      test: ["CMD", "rabbitmqctl", "status"]
-      interval: 5s
-      timeout: 10s
-      retries: 3
+version: "3.9"
 
+services:
   postgres:
-    image: postgres:15-alpine
+    build:
+      context: .
+      dockerfile: database/Dockerfile
+      args:
+        POSTGRES_USER: ${POSTGRES_USER}
+        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+        POSTGRES_DB: ${POSTGRES_DB}
     container_name: postgres
-    restart: unless-stopped
+    env_file:
+      - ./.env
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: monitor
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
-      - ./postgres/init:/docker-entrypoint-initdb.d   # 👈 тут будет твой init.sql
       - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d monitor"]
-      interval: 5s
-      timeout: 3s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
       retries: 5
     networks:
-      - broker_network
+      - internal
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    env_file:
+      - ./.env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: backend
+    env_file:
+      - ./.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+    networks:
+      - internal
 
   pinger:
     build:
-      context: ./pinger
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: pinger/Dockerfile
     container_name: pinger
-    ports:
-      - "6767:6767"
+    env_file:
+      - ./.env
     depends_on:
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      clickhouse:
-        condition: service_started
-      postgres:                                # 👈 ждать Postgres
-        condition: service_healthy
-    privileged: true
-    environment:
-      INTERVAL: 60
-      INPUT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/monitor   # 👈 теперь так
-      NOTIFY_ALWAYS: 0
+    restart: unless-stopped
     networks:
-      - broker_network
+      - internal
 
-  llm_service:
-      build:
-        context: ./LLM_service
-        dockerfile: Dockerfile
-      container_name: llm_service
-      ports:
-        - "6868:6868"
-      depends_on:
-        rabbitmq:
-          condition: service_healthy # если настроен healthcheck
-      privileged: true
-  
-      networks:
-        - broker_network
-
-  tg_service:
+  llm_worker:
     build:
-      context: ./notifier-service/tg-bot
-      dockerfile: Dockerfile
-    container_name: tg_service
-    ports:
-      - "6966:6966"
+      context: .
+      dockerfile: LLM_service/Dockerfile
+    container_name: llm_worker
+    env_file:
+      - ./.env
     depends_on:
       rabbitmq:
-        condition: service_healthy # если настроен healthcheck
-    privileged: true
-    environment:
-      # Telegram
-      TG_TOKEN: 8368944259:AAHj-ivSsU-6GVV7nG4Ai1KFpNT6tKzIemM
-      # Redis
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
-      # Logging
-      LOG_LEVEL: INFO
+        condition: service_healthy
+    restart: unless-stopped
     networks:
-      - broker_network
+      - internal
+
+  dispatcher:
+    build:
+      context: .
+      dockerfile: notifier-service/dispatcher/Dockerfile
+    container_name: dispatcher
+    env_file:
+      - ./.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
+
+  tg_bot:
+    build:
+      context: .
+      dockerfile: notifier-service/tg-bot/Dockerfile
+    container_name: tg_bot
+    env_file:
+      - ./.env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
 
   redis:
     image: redis:7-alpine
     container_name: redis
     restart: unless-stopped
     ports:
-       - "6379:6379"
+      - "6379:6379"
     networks:
-      - broker_network
+      - internal
 
   clickhouse:
     image: clickhouse/clickhouse-server:23.8
     container_name: clickhouse
     restart: unless-stopped
-    ports:
-      - "8123:8123"   # HTTP API
-      - "9000:9000"   # Native protocol
     environment:
       CLICKHOUSE_DB: monitor
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: ""
-    ulimits:
-      nofile:
-        soft: 262144
-        hard: 262144
+    ports:
+      - "8123:8123"
+      - "9000:9000"
     volumes:
       - ./clickhouse_logs:/var/log/clickhouse-server
-      - ./clickhouse/init:/docker-entrypoint-initdb.d  # 👈 тут твои init.sql
+      - ./clickhouse/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD", "clickhouse-client", "--query=SELECT 1"]
-      interval: 5s
-      timeout: 3s
+      interval: 10s
+      timeout: 5s
       retries: 5
     networks:
-      - broker_network
-
-##### BACKEND ###################
+      - internal
 
   api_service:
     build:
       context: ./api_service
-      dockerfile: Dockerfile
     container_name: api_service
-    ports:
-      - "8000:8000"
     depends_on:
       clickhouse:
-        condition: service_healthy   # ✅ ждать пока ClickHouse будет healthy
+        condition: service_healthy
+    ports:
+      - "8000:8000"
     networks:
-      - broker_network
+      - internal
 
-#################################
 networks:
-  broker_network:
+  internal:
     driver: bridge
-    external: true
 
 volumes:
   postgres_data:
-  
-
+  rabbitmq_data:
