@@ -175,7 +175,7 @@ services:
 networks:
   broker_network:
     driver: bridge
-    external: true
+    external: false
 
 #volumes:
   #postgres_data:
