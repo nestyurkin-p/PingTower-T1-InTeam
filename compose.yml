@@ -151,6 +151,27 @@ services:
       INPUT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/monitor
 
 #################################
+
+##### FRONTEND #################
+
+  frontend:
+      build:
+        context: ./frontend/pingtower-flow
+        dockerfile: Dockerfile
+      container_name: frontend
+      environment:
+        - NODE_ENV=production   # или development
+        - VITE_API_URL=http://api_service:8000
+      ports:
+        - "8080:8080"
+      depends_on:
+        - api_service
+      networks:
+        - broker_network
+
+
+
+############################
 networks:
   broker_network:
     driver: bridge
