@@ -85,13 +85,14 @@ def update_site_status(site_id, traffic_light, history):
             conn.commit()
 
 async def monitor_site(site, stop_event: asyncio.Event):
-    """Отдельная таска для одного сайта"""
     site_id = site["id"]
     url = site["url"]
     name = site["name"]
     ping_interval = site["ping_interval"]
 
     logging.info(f"▶ Запуск мониторинга {name} ({url}), интервал {ping_interval} сек")
+
+    last_status = site.get("last_traffic_light")  # сохраним последний известный статус
 
     while not stop_event.is_set():
         try:
@@ -103,9 +104,9 @@ async def monitor_site(site, stop_event: asyncio.Event):
             history.append(logs)
             history = history[-10:]
 
-            changed = site["last_traffic_light"] != traffic_light
+            # Проверка изменений
+            changed = (last_status != traffic_light)
 
-            # если NOTIFY_ALWAYS=1 → всегда уведомляем
             if NOTIFY_ALWAYS == 1:
                 skip_notification = False
             else:
@@ -115,11 +116,15 @@ async def monitor_site(site, stop_event: asyncio.Event):
                 "id": site_id,
                 "url": url,
                 "name": name,
-                "com": {**site["com"], "skip_notification": skip_notification},
+                "com": {**(site["com"] or {}), "skip_notification": skip_notification},
                 "logs": logs,
             }
 
+            # Обновляем статус в БД
             update_site_status(site_id, traffic_light, history)
+
+            # Запоминаем новый статус
+            last_status = traffic_light
 
             # запись в ClickHouse
             ch_client.insert(
@@ -167,6 +172,7 @@ async def monitor_site(site, stop_event: asyncio.Event):
             pass
 
     logging.info(f"⏹ Мониторинг остановлен для {name} ({url})")
+
 
 async def site_manager():
     """Менеджер: следит за актуальным списком сайтов"""
