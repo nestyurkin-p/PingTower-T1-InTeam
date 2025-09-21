@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
+from typing import cast
 
 import uvicorn
 from fastapi import FastAPI
@@ -14,7 +15,11 @@ from core.config import settings  # noqa: E402
 from app.broker import app as stream_app  # noqa: E402
 import app.consumers  # noqa: F401,E402
 from app.api.routes import router as api_router  # noqa: E402
-from database import db  # noqa: E402
+from database import DataBase, db as shared_db  # noqa: E402
+if shared_db is None:
+    raise RuntimeError("Database connection is not configured")
+
+db = cast(DataBase, shared_db)
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),

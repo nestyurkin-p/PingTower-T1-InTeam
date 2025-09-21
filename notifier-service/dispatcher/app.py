@@ -14,15 +14,15 @@ for candidate in (ROOT_DIR, BASE_DIR, EMAIL_SENDER_PATH):
         sys.path.insert(0, str(candidate))
 
 from core.config import settings  # noqa: E402
-from .utils.log import setup_logging  # noqa: E402
+from dispatcher.utils.log import setup_logging  # noqa: E402
 
 setup_logging()
 
 from broker.broker import app as faststream_app, llm_exchange  # type: ignore  # noqa: E402
 from database import DataBase, db as shared_db  # noqa: E402
 
-from .routes.llm import setup_llm_routes  # noqa: E402
-from .services.antispam import AntiSpamService  # noqa: E402
+from dispatcher.routes.llm import setup_llm_routes  # noqa: E402
+from dispatcher.services.antispam import AntiSpamService  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

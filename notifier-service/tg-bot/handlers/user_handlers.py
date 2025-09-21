@@ -1,13 +1,19 @@
+from typing import cast
 from aiogram import Router, F
 from aiogram.types import Message
-from database import db  # общий модуль БД из корня проекта
+from database import DataBase, db  # общий модуль БД из корня проекта
 
 router = Router()
+
+if db is None:
+    raise RuntimeError("Database is not configured")
+
+database: DataBase = cast(DataBase, db)
 
 
 @router.message(F.text == "/start")
 async def cmd_start(message: Message):
-    await db.upsert_user_tg_chat(
+    await database.upsert_user_tg_chat(
         user_id=message.from_user.id,
         chat_id=message.chat.id,
         login=message.from_user.username,
@@ -17,7 +23,7 @@ async def cmd_start(message: Message):
 
 @router.message(F.text == "/stop")
 async def cmd_stop(message: Message):
-    await db.disable_user_tg(message.from_user.id)
+    await database.disable_user_tg(message.from_user.id)
     await message.answer("Telegram-уведомления отключены.")
 
 

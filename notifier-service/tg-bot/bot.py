@@ -17,6 +17,7 @@ if str(ROOT_DIR) not in sys.path:
 from core.config import settings  # noqa: E402
 from app_core import setup_logging  # noqa: E402
 from handlers.user_handlers import router as user_router  # noqa: E402
+from database import db  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ dp = Dispatcher()
 
 async def main() -> None:
     setup_logging(settings.log_level)
+    if db is None:
+        raise RuntimeError("Database connection is not configured")
+    logger.info("Ensuring database schema is up to date")
+    await db.create_tables()
     logger.info(
         "Bot starting with admins=%s, rabbit_url=%s",
         settings.telegram.admin_ids or "<none>",

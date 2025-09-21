@@ -3,16 +3,17 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 from typing import List
+from urllib.parse import quote
 
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 
 
 class TelegramSettings(BaseModel):
-    token: str = Field(default="", validation_alias=AliasChoices("TELEGRAM__TOKEN", "TG_TOKEN"))
-    admin_ids: List[int] = Field(default_factory=list, validation_alias=AliasChoices("TELEGRAM__ADMIN_IDS", "ADMIN_TG_IDS"))
+    token: str = ""
+    admin_ids: List[int] = Field(default_factory=list)
 
     @field_validator("admin_ids", mode="before")
     @classmethod
@@ -29,80 +30,82 @@ class TelegramSettings(BaseModel):
                     continue
                 result.append(int(item))
             return result
-        raise TypeError("ADMIN_TG_IDS must be a comma separated string or list of ints")
-
+        if isinstance(value, int):
+            return [value]
+        raise TypeError("ADMIN_IDS must be a comma separated string or list of ints")
 
 class RabbitSettings(BaseModel):
-    url: str = Field(default="", validation_alias=AliasChoices("RABBIT__URL", "RABBIT_URL"))
-    alert_exchange: str = Field(default="pinger.events", validation_alias=AliasChoices("RABBIT__ALERT_EXCHANGE", "ALERT_EXCHANGE"))
-    alert_routing_key: str = Field(default="#", validation_alias=AliasChoices("RABBIT__ALERT_ROUTING_KEY", "ALERT_ROUTING_KEY"))
-    pinger_exchange: str = Field(default="pinger.events", validation_alias=AliasChoices("RABBIT__PINGER_EXCHANGE", "PINGER_EXCHANGE"))
-    pinger_queue: str = Field(default="pinger-to-backend-queue", validation_alias=AliasChoices("RABBIT__PINGER_QUEUE", "PINGER_QUEUE"))
-    pinger_routing_key: str = Field(default="pinger.group", validation_alias=AliasChoices("RABBIT__PINGER_ROUTING_KEY", "PINGER_ROUTING_KEY"))
-    llm_exchange: str = Field(default="llm.events", validation_alias=AliasChoices("RABBIT__LLM_EXCHANGE", "LLM_EXCHANGE"))
-    llm_queue: str = Field(default="llm-to-backend-queue", validation_alias=AliasChoices("RABBIT__LLM_QUEUE", "LLM_QUEUE"))
-    llm_routing_key: str = Field(default="llm.group", validation_alias=AliasChoices("RABBIT__LLM_ROUTING_KEY", "LLM_ROUTING_KEY"))
+    url: str = ""
+    host: str = "rabbitmq"
+    port: int = 5672
+    user: str = ""
+    password: str = ""
+    vhost: str = "/"
+    alert_exchange: str = "pinger.events"
+    alert_routing_key: str = "#"
+    pinger_exchange: str = "pinger.events"
+    pinger_queue: str = "pinger-to-backend-queue"
+    pinger_routing_key: str = "pinger.group"
+    llm_exchange: str = "llm.events"
+    llm_queue: str = "llm-to-backend-queue"
+    llm_routing_key: str = "llm.group"
+
+    @model_validator(mode="after")
+    def _ensure_url(self) -> RabbitSettings:  # type: ignore[override]
+        if self.url:
+            return self
+        user = quote(self.user, safe="") if self.user else ""
+        password = quote(self.password, safe="") if self.password else ""
+        credentials = ""
+        if user:
+            credentials = user
+            if password:
+                credentials += f":{password}"
+            credentials += "@"
+        host = (self.host or "localhost").strip() or "localhost"
+        port = f":{self.port}" if self.port else ""
+        vhost = (self.vhost or "/").lstrip("/")
+        path = f"/{vhost}" if vhost else "/"
+        url = f"amqp://{credentials}{host}{port}{path}"
+        object.__setattr__(self, "url", url)
+        return self
 
 
 class BackendSettings(BaseModel):
-    host: str = Field(default="0.0.0.0", validation_alias=AliasChoices("BACKEND__HOST", "APP_HOST"))
-    port: int = Field(default=8000, validation_alias=AliasChoices("BACKEND__PORT", "APP_PORT"))
+    host: str = "0.0.0.0"
+    port: int = 8000
 
 
 class DatabaseSettings(BaseModel):
-    main_url: str = Field(
-        default="",
-        validation_alias=AliasChoices("DATABASE__URL", "DATABASE_URL"),
-    )
+    main_url: str = ""
 
 
 class PingerSettings(BaseModel):
-    interval_sec: int = Field(default=5, validation_alias=AliasChoices("PINGER__INTERVAL_SEC", "INTERVAL"))
-    input_database_url: str = Field(
-        default="",
-        validation_alias=AliasChoices("PINGER__INPUT_DATABASE_URL", "INPUT_DATABASE_URL"),
-    )
+    interval_sec: int = 5
+    input_database_url: str = ""
 
 
 class DispatcherSettings(BaseModel):
-    grouping_window_sec: int = Field(
-        default=60,
-        validation_alias=AliasChoices("DISPATCHER__GROUPING_WINDOW_SEC", "GROUPING_WINDOW_GLOBAL_SEC"),
-    )
-    autocreate_sites: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("DISPATCHER__AUTOCREATE_SITES", "NOTIFIER_AUTOCREATE_SITES"),
-    )
+    grouping_window_sec: int = 60
+    autocreate_sites: bool = False
 
 
 class EmailSettings(BaseModel):
-    host: str = Field(default="", validation_alias=AliasChoices("EMAIL__HOST", "SMTP_HOST"))
-    port: int = Field(default=587, validation_alias=AliasChoices("EMAIL__PORT", "SMTP_PORT"))
-    user: str = Field(default="", validation_alias=AliasChoices("EMAIL__USER", "SMTP_USER"))
-    password: str = Field(default="", validation_alias=AliasChoices("EMAIL__PASSWORD", "SMTP_PASSWORD"))
-    tls: bool = Field(default=True, validation_alias=AliasChoices("EMAIL__TLS", "SMTP_TLS"))
-    ssl: bool = Field(default=False, validation_alias=AliasChoices("EMAIL__SSL", "SMTP_SSL"))
-    from_addr: str = Field(default="PingTower <alerts@localhost>", validation_alias=AliasChoices("EMAIL__FROM", "SMTP_FROM"))
-    timeout: int = Field(default=10, validation_alias=AliasChoices("EMAIL__TIMEOUT", "SMTP_TIMEOUT"))
+    host: str = ""
+    port: int = 587
+    user: str = ""
+    password: str = ""
+    tls: bool = True
+    ssl: bool = False
+    from_addr: str = "PingTower <alerts@localhost>"
+    timeout: int = 10
 
 
 class LLMSettings(BaseModel):
-    api_key: str = Field(default="", validation_alias=AliasChoices("LLM__API_KEY", "OPENAI_API_KEY"))
-    model: str = Field(default="gpt-4o-mini", validation_alias=AliasChoices("LLM__MODEL", "OPENAI_MODEL"))
-    base_url: str = Field(
-        default="https://api.proxyapi.ru/openai/v1",
-        validation_alias=AliasChoices("LLM__BASE_URL", "OPENAI_BASE_URL"),
-    )
-    use_skip_notification: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("LLM__USE_SKIP_NOTIFICATION", "USE_SKIP_NOTIFICATION"),
-    )
-
-
-class RedisSettings(BaseModel):
-    host: str = Field(default="localhost", validation_alias=AliasChoices("REDIS__HOST", "REDIS_HOST"))
-    port: int = Field(default=6379, validation_alias=AliasChoices("REDIS__PORT", "REDIS_PORT"))
-    db: int = Field(default=0, validation_alias=AliasChoices("REDIS__DB", "REDIS_DB"))
+    api_key: str = ""
+    model: str = "gpt-4o-mini"
+    base_url: str = "https://api.proxyapi.ru/openai/v1"
+    use_skip_notification: bool = False
 
 
 class Settings(BaseSettings):
@@ -113,7 +116,18 @@ class Settings(BaseSettings):
         extra="allow",
     )
 
-    log_level: str = Field(default="INFO", validation_alias=AliasChoices("CORE__LOG_LEVEL", "LOG_LEVEL"))
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+
+    # legacy flat aliases
+    legacy_bot_token: str = Field(default="", alias="BOT_TOKEN", exclude=True)
+    legacy_admin_ids: str = Field(default="", alias="ADMIN_IDS", exclude=True)
+    legacy_rabbit_host: str = Field(default="", alias="RABBIT_HOST", exclude=True)
+    legacy_rabbit_port: str = Field(default="", alias="RABBIT_PORT", exclude=True)
+    legacy_rabbit_user: str = Field(default="", alias="RABBIT_USER", exclude=True)
+    legacy_rabbit_password: str = Field(default="", alias="RABBIT_PASSWORD", exclude=True)
+    legacy_rabbit_vhost: str = Field(default="", alias="RABBIT_VHOST", exclude=True)
+    legacy_database_url: str = Field(default="", alias="DATABASE_URL", exclude=True)
+    legacy_input_database_url: str = Field(default="", alias="INPUT_DATABASE_URL", exclude=True)
 
     telegram: TelegramSettings = TelegramSettings()
     rabbit: RabbitSettings = RabbitSettings()
@@ -123,7 +137,53 @@ class Settings(BaseSettings):
     dispatcher: DispatcherSettings = DispatcherSettings()
     email: EmailSettings = EmailSettings()
     llm: LLMSettings = LLMSettings()
-    redis: RedisSettings = RedisSettings()
+
+    @model_validator(mode="after")
+    def _apply_legacy_fields(self) -> Settings:  # type: ignore[override]
+        telegram_updates: dict[str, object] = {}
+        if self.legacy_bot_token and not self.telegram.token:
+            telegram_updates["token"] = self.legacy_bot_token
+        if self.legacy_admin_ids and not self.telegram.admin_ids:
+            telegram_updates["admin_ids"] = self.legacy_admin_ids
+        if telegram_updates:
+            payload = self.telegram.model_dump()
+            payload.update(telegram_updates)
+            object.__setattr__(self, "telegram", TelegramSettings.model_validate(payload))
+
+        rabbit_updates: dict[str, object] = {}
+        if self.legacy_rabbit_host:
+            rabbit_updates["host"] = self.legacy_rabbit_host
+            rabbit_updates["url"] = ""
+        if self.legacy_rabbit_port:
+            rabbit_updates["port"] = self.legacy_rabbit_port
+        if self.legacy_rabbit_user:
+            rabbit_updates["user"] = self.legacy_rabbit_user
+        if self.legacy_rabbit_password:
+            rabbit_updates["password"] = self.legacy_rabbit_password
+        if self.legacy_rabbit_vhost:
+            rabbit_updates["vhost"] = self.legacy_rabbit_vhost
+        if rabbit_updates:
+            payload = self.rabbit.model_dump()
+            payload.update(rabbit_updates)
+            object.__setattr__(self, "rabbit", RabbitSettings.model_validate(payload))
+
+        database_updates: dict[str, object] = {}
+        if self.legacy_database_url and not self.database.main_url:
+            database_updates["main_url"] = self.legacy_database_url
+        if database_updates:
+            payload = self.database.model_dump()
+            payload.update(database_updates)
+            object.__setattr__(self, "database", DatabaseSettings.model_validate(payload))
+
+        pinger_updates: dict[str, object] = {}
+        if self.legacy_input_database_url and not self.pinger.input_database_url:
+            pinger_updates["input_database_url"] = self.legacy_input_database_url
+        if pinger_updates:
+            payload = self.pinger.model_dump()
+            payload.update(pinger_updates)
+            object.__setattr__(self, "pinger", PingerSettings.model_validate(payload))
+
+        return self
 
 
 @lru_cache(maxsize=1)

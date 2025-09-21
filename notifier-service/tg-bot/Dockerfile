@@ -10,6 +10,7 @@ COPY notifier-service/tg-bot/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY core /app/core
+COPY database /app/database
 COPY notifier-service /app/notifier-service
 
 CMD ["python", "bot.py"]

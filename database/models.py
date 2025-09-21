@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Integer, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, Integer, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -22,6 +22,10 @@ class Site(Base):
     last_traffic_light: Mapped[str | None] = mapped_column(Text, nullable=True)
     history: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     ping_interval: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    last_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_rtt: Mapped[float | None] = mapped_column(Float, nullable=True)
+    skip_notification: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class Team(Base):
@@ -35,3 +39,19 @@ class Team(Base):
     email_recipients: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     webhook_urls: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tg_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True, index=True)
+    tg_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    login: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )

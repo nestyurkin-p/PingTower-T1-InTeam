@@ -4,7 +4,6 @@
 
 # notifier-service
 
-Микросервис уведомлений. Текущая реализация — **Telegram-бот (aiogram 3)**, который слушает **RabbitMQ** и присылает сообщения о сбоях. Подписки хранятся в **Redis**.
 
 ## Структура
 
@@ -12,7 +11,6 @@
 notifier-service/
 └─ tg-bot/                      # Telegram-нотифаер
    ├─ bot.py                    # Точка входа
-   ├─ core/                     # Конфигурация, Bot/Dispatcher, RedisStorage, логирование
    ├─ services/                 # Подключение к брокеру, consumer (aio-pika)
    ├─ handlers/
    ├─ utils/                    # Форматирование алертов, работа с подписками
@@ -33,8 +31,6 @@ docker run -d --name rabbit `
   -e RABBITMQ_DEFAULT_PASS=toor `
   rabbitmq:3.13-management
 
-# Redis
-docker run -d --name redis -p 6379:6379 redis:7-alpine
 ```
 
 UI: [http://localhost:15672](http://localhost:15672) (логин/пароль: `root` / `toor`)
@@ -84,7 +80,6 @@ docker run --rm \
   notifier-tg:latest
 ```
 
-> На Windows проще запускать бота **с хоста** (как выше). Если хочешь запускать в Docker, подключи контейнер к той же сети, где у тебя Rabbit/Redis, и укажи в `.env` `RABBIT_URL=amqp://root:toor@rabbitmq:5672/` (hostname = имя контейнера/broker-сервиса).
 
 ## Формат входящих сообщений
 
@@ -101,7 +96,6 @@ docker run --rm \
 
 ## Подписки
 
-Подписки на чат хранятся в Redis (set `notifier:subs`):
 
 * `/start` — подписывает текущий чат
 * `/stop` — отписывает

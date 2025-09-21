@@ -31,13 +31,15 @@ logger = logging.getLogger(__name__)
 
 def setup_llm_routes(app, exchange, db: DataBase, antispam: AntiSpamService) -> None:
     """Register FastStream subscriber for LLM verdict events."""
+    broker = app.broker
+
     queue = RabbitQueue(
         "llm-to-dispatcher-queue",
         durable=True,
         routing_key=settings.rabbit.llm_routing_key,
     )
 
-    @app.subscriber(queue, exchange)
+    @broker.subscriber(queue, exchange=exchange)
     async def handle_llm_event(payload: dict[str, Any]) -> None:  # type: ignore[override]
         try:
             message = DispatchMessage.model_validate(payload)

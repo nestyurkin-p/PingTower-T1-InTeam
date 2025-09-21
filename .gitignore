@@ -210,5 +210,4 @@ __marimo__/
 # My files
 test_consumer.py
 test_publisher.py
-!.env
 !.env.example

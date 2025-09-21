@@ -20,7 +20,7 @@ pinger_exchange = RabbitExchange(settings.rabbit.pinger_exchange, type=ExchangeT
 llm_exchange = RabbitExchange(settings.rabbit.llm_exchange, type=ExchangeType.TOPIC, durable=True)
 
 
-@broker.after_startup
+@app.after_startup
 async def declare():
     await broker.declare_exchange(pinger_exchange)
     await broker.declare_exchange(llm_exchange)

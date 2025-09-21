@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from .models import Base, Site, Team
+from .models import Base, Site, Team, User
 from core.config import TelegramSettings
 
 
@@ -25,8 +25,54 @@ class DataBase:
         """Create required tables if they are not present."""
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS last_ok BOOLEAN"))
+            await conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS last_status TEXT"))
+            await conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS last_rtt DOUBLE PRECISION"))
+            await conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS skip_notification BOOLEAN DEFAULT FALSE NOT NULL"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT TRUE NOT NULL"))
 
-    # -----------------------------   SITES   ----------------------------- #
+        # -----------------------------   USERS   ----------------------------- #
+
+    async def upsert_user_tg_chat(
+        self,
+        user_id: int,
+        chat_id: int,
+        login: str | None = None,
+    ) -> None:
+        if not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError('user_id must be a positive integer')
+        if not isinstance(chat_id, int) or chat_id <= 0:
+            raise ValueError('chat_id must be a positive integer')
+        async with self.async_session() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(User).where(User.tg_user_id == user_id).with_for_update()
+                )
+                user = result.scalar_one_or_none()
+                if user is None:
+                    user = User(tg_user_id=user_id)
+                    session.add(user)
+                user.tg_chat_id = chat_id
+                user.login = login
+                user.enabled = True
+                await session.flush()
+
+    async def disable_user_tg(self, user_id: int) -> None:
+        if not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError('user_id must be a positive integer')
+        async with self.async_session() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(User).where(User.tg_user_id == user_id).with_for_update()
+                )
+                user = result.scalar_one_or_none()
+                if user is None:
+                    return
+                user.enabled = False
+                user.tg_chat_id = None
+                await session.flush()
+
+# -----------------------------   SITES   ----------------------------- #
 
     async def ensure_site(
         self,
