@@ -68,18 +68,18 @@ def traffic_light_from_history(history: list[dict], current: dict) -> str:
     # --- Время ответа ---
     if latency_ms is None or latency_ms > 5000:
         return "red"
-    if latency_ms > 2000:
+    if latency_ms > 2500:
         return "red"
-    if latency_ms > 1000:
+    if latency_ms > 1500:
         return "orange"
 
     # --- Ping ---
     if ping_ms is not None:
         if len(last5) >= 2 and all(h.get("ping_ms", 0) and h["ping_ms"] > 1200 for h in last5[-2:]):
             return "red"
-        if ping_ms > 1200:
+        if ping_ms > 1500:
             return "red"
-        if ping_ms > 400:
+        if ping_ms > 600:
             return "orange"
 
     # --- SSL ---

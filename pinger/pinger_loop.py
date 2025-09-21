@@ -30,11 +30,15 @@ logging.basicConfig(
 
 _ASYNC_MAIN_URL = settings.database.main_url or ""
 if _ASYNC_MAIN_URL.startswith("postgresql+asyncpg://"):
-    _SYNC_MAIN_URL = "postgresql://" + _ASYNC_MAIN_URL[len("postgresql+asyncpg://"):]
+    _SYNC_MAIN_URL = "postgresql://" + _ASYNC_MAIN_URL[len("postgresql+asyncpg://") :]
 else:
     _SYNC_MAIN_URL = _ASYNC_MAIN_URL
 
-DATABASE_URL = settings.pinger.input_database_url or _SYNC_MAIN_URL or "postgresql://postgres:postgres@postgres:5432/pingtower"
+DATABASE_URL = (
+    settings.pinger.input_database_url
+    or _SYNC_MAIN_URL
+    or "postgresql://postgres:postgres@postgres:5432/pingtower"
+)
 INTERVAL = settings.pinger.interval_sec
 NOTIFY_ALWAYS = settings.pinger.notify_always
 
@@ -49,6 +53,7 @@ CH_CLIENT = None
 
 
 def write_postgres_log(record: dict, logs: dict, ping_interval: int) -> None:
+    """Persist raw record to Postgres history table."""
     try:
         with psycopg2.connect(DATABASE_URL) as conn:
             with conn.cursor() as cur:
@@ -70,7 +75,9 @@ def write_postgres_log(record: dict, logs: dict, ping_interval: int) -> None:
                         logs.get("latency_ms"),
                         logs.get("ping_ms"),
                         logs.get("ssl_days_left"),
-                        bool(logs.get("dns_resolved")) if logs.get("dns_resolved") is not None else None,
+                        bool(logs.get("dns_resolved"))
+                        if logs.get("dns_resolved") is not None
+                        else None,
                         logs.get("redirects"),
                         logs.get("errors_last"),
                         ping_interval,
@@ -83,6 +90,7 @@ def write_postgres_log(record: dict, logs: dict, ping_interval: int) -> None:
 
 
 def _init_clickhouse() -> None:
+    """Initialise ClickHouse client when configured."""
     global CH_CLIENT
     if not CLICKHOUSE_ENABLED:
         if CLICKHOUSE_HOST and clickhouse_connect is None:
@@ -148,7 +156,16 @@ def fetch_sites():
             ]
 
 
-def update_site_status(site_id, *, ok, status, rtt, skip_notification, traffic_light, history):
+def update_site_status(
+    site_id,
+    *,
+    ok,
+    status,
+    rtt,
+    skip_notification,
+    traffic_light,
+    history,
+):
     """Persist computed status back to Postgres."""
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
@@ -163,32 +180,43 @@ def update_site_status(site_id, *, ok, status, rtt, skip_notification, traffic_l
                     history=%s
                 WHERE id=%s
                 """,
-                (ok, status, rtt, skip_notification, traffic_light, json.dumps(history, ensure_ascii=False), site_id),
+                (
+                    ok,
+                    status,
+                    rtt,
+                    skip_notification,
+                    traffic_light,
+                    json.dumps(history, ensure_ascii=False),
+                    site_id,
+                ),
             )
             conn.commit()
 
 
 def write_clickhouse(record: dict, logs: dict, ping_interval: int) -> None:
+    """Export the record into ClickHouse if enabled."""
     if CH_CLIENT is None:
         return
     try:
         CH_CLIENT.insert(
             CLICKHOUSE_TABLE,
-            [[
-                int(record["id"]),
-                record["url"],
-                record["name"],
-                logs.get("timestamp") or strftime("%Y-%m-%dT%H:%M:%S"),
-                logs.get("traffic_light"),
-                logs.get("http_status"),
-                logs.get("latency_ms"),
-                logs.get("ping_ms"),
-                logs.get("ssl_days_left"),
-                1 if logs.get("dns_resolved") else 0,
-                logs.get("redirects"),
-                logs.get("errors_last"),
-                ping_interval,
-            ]],
+            [
+                [
+                    int(record["id"]),
+                    record["url"],
+                    record["name"],
+                    logs.get("timestamp") or strftime("%Y-%m-%dT%H:%M:%S"),
+                    logs.get("traffic_light"),
+                    logs.get("http_status"),
+                    logs.get("latency_ms"),
+                    logs.get("ping_ms"),
+                    logs.get("ssl_days_left"),
+                    1 if logs.get("dns_resolved") else 0,
+                    logs.get("redirects"),
+                    logs.get("errors_last"),
+                    ping_interval,
+                ]
+            ],
             column_names=[
                 "id",
                 "url",

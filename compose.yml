@@ -21,6 +21,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d
+
+
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -170,10 +172,14 @@ services:
       - "8000:8000"
     networks:
       - internal
+#       - broker_network
+    environment:
+      INPUT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/monitor
 
 networks:
   internal:
     driver: bridge
+
 
 volumes:
   postgres_data:
