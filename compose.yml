@@ -48,15 +48,20 @@ services:
       rabbitmq:
         condition: service_healthy
       clickhouse:
-        condition: service_started
-      postgres:                                # 👈 ждать Postgres
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     privileged: true
     environment:
       INTERVAL: 60
       INPUT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/monitor
-   # 👈 теперь так
       NOTIFY_ALWAYS: 0
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: root
+      RABBITMQ_PASS: toor
     networks:
       - broker_network
 
@@ -160,7 +165,7 @@ services:
         dockerfile: Dockerfile
       container_name: frontend
       environment:
-        - NODE_ENV=development   # или development
+        - NODE_ENV=develop   # или development
         - VITE_API_URL=http://api_service:8000
       ports:
         - "8080:8080"

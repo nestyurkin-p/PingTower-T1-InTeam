@@ -5,7 +5,15 @@ WORKDIR /app
 
 # Установим зависимости (чтобы кэшировалось)
 COPY package*.json ./
-RUN npm install
+
+# ⚡ Установка зависимостей, включая недостающие пакеты
+RUN npm install && \
+    npm install zustand reactflow clsx && \
+    npm install -D @types/react @types/react-dom
+
+RUN npm install tailwindcss postcss autoprefixer class-variance-authority tailwind-variants lucide-react recharts
+
+RUN npm install --save-dev @types/react @types/react-dom
 
 # Скопируем исходники
 COPY . .
@@ -33,4 +41,3 @@ CMD if [ "$NODE_ENV" = "development" ]; then \
     else \
       serve -s dist -l 8080; \
     fi
-

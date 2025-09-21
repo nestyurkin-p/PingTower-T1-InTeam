@@ -91,11 +91,11 @@ export default function Toolbar() {
             </button>
           )}
           <div className="flex items-center gap-3 text-xs text-slate-400">
-            <span>Сохранено {formatRelativeTime(lastSavedAt)}</span>
+            <span>Сохранено {lastSavedAt ? formatRelativeTime(lastSavedAt.getTime()) : "никогда"}</span>
             <span className="hidden md:inline">•</span>
             <span className="hidden md:inline">
               Последний запуск{" "}
-              {lastRunAt ? formatRelativeTime(lastRunAt) : "не запускался"}
+              {lastRunAt ? formatRelativeTime(lastRunAt.getTime()) : "не запускался"}
             </span>
           </div>
         </div>

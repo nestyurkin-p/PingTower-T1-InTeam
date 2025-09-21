@@ -13,15 +13,16 @@ import {
   type FlowNode,
   buildWebsiteMetadata,
   DEFAULT_PING_INTERVAL,
-
   MAX_PING_INTERVAL,
   MIN_PING_INTERVAL,
   normalizePingInterval,
 } from "../flow/nodes/types";
+
 import type { Edge, XYPosition } from "reactflow";
 
 export type NodeStatus = "idle" | "running" | "success" | "error";
 
+// ===================== helpers =====================
 const websiteSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const cancelWebsiteSyncTimer = (nodeId: string) => {
@@ -42,11 +43,7 @@ const parseComValue = (value: SiteRecord["com"]): Record<string, unknown> | null
       return null;
     }
   }
-
-  if (typeof value === "object") {
-    return value as Record<string, unknown>;
-  }
-
+  if (typeof value === "object") return value as Record<string, unknown>;
   return null;
 };
 
@@ -63,7 +60,7 @@ const buildTelegramCom = (
   const base =
     current && typeof current === "object"
       ? { ...(current as Record<string, unknown>) }
-      : ({} as Record<string, unknown>);
+      : {};
   base.tg = enabled ? 1 : 0;
   return base;
 };
@@ -77,7 +74,7 @@ const isWebsiteConnectedToTelegram = (siteId: string, nodes: FlowNode[], edges: 
   });
 };
 
-
+// ===================== store type =====================
 type FlowStore = {
   flowName: string;
   setFlowName: (name: string) => void;
@@ -110,6 +107,7 @@ type FlowStore = {
   lastSavedAt?: Date;
 };
 
+// ===================== zustand store =====================
 export const useFlowStore = create<FlowStore>((set, get) => ({
   flowName: "Новый сценарий",
   setFlowName: (name) => set({ flowName: name, isDirty: true }),
@@ -201,6 +199,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
     }
   },
 
+  // ➕ создать новый сайт
   createWebsiteNode: async (position, template) => {
     if (typeof window === "undefined") return;
 
@@ -247,7 +246,6 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
         type: "website",
         position,
         data: {
-
           emoji: template.emoji ?? "🌐",
           status: template.status ?? "idle",
           title: saved.name,
@@ -259,81 +257,6 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
             description: saved.url,
             ping_interval: saved.ping_interval ?? normalizedInterval,
             com,
-
-          }),
-        },
-      };
-
-      set((state) => ({
-        nodes: state.nodes.concat(node),
-        selectedNodeId: node.id,
-        isDirty: false,
-        lastSavedAt: new Date(),
-      }));
-
-      return node;
-    } catch (err) {
-      console.error("[FlowStore] Ошибка создания сайта:", err);
-    }
-  },
-
-  createWebsiteNode: async (position, template) => {
-    if (typeof window === "undefined") return;
-
-    const defaultUrl = template.description?.trim() || "https://example.com";
-    const defaultName = template.title?.trim() || "Новый сайт";
-    const defaultInterval = template.ping_interval ?? DEFAULT_PING_INTERVAL;
-
-    const urlInput = window.prompt("Введите URL сайта", defaultUrl);
-    if (urlInput === null) return;
-    const url = urlInput.trim();
-    if (!url) {
-      window.alert("URL не может быть пустым");
-      return;
-    }
-
-    const nameInput = window.prompt("Введите название сайта", defaultName);
-    if (nameInput === null) return;
-    const name = nameInput.trim();
-    if (!name) {
-      window.alert("Название не может быть пустым");
-      return;
-    }
-
-    const intervalInput = window.prompt(
-      "Введите интервал опроса (сек)",
-      String(defaultInterval)
-    );
-    if (intervalInput === null) return;
-
-    const normalizedInterval = normalizePingInterval(intervalInput);
-    if (!normalizedInterval) {
-      window.alert(
-        `Интервал должен быть положительным числом от ${MIN_PING_INTERVAL} до ${MAX_PING_INTERVAL}`
-      );
-      return;
-    }
-
-    try {
-      const saved = await createSite(url, name, normalizedInterval);
-
-
-      const node: FlowNode = {
-        id: String(saved.id),
-        type: "website",
-        position,
-        data: {
-          emoji: template.emoji ?? "🌐",
-          status: template.status ?? "idle",
-          title: saved.name,
-          description: saved.url,
-
-          ping_interval: saved.ping_interval ?? normalizedInterval,
-          metadata: buildWebsiteMetadata({
-            title: saved.name,
-            description: saved.url,
-            ping_interval: saved.ping_interval ?? normalizedInterval,
-
           }),
         },
       };
@@ -363,6 +286,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       const saved = node.id.startsWith("temp-")
         ? await createSite(url, name, ping_interval)
         : await updateSite(Number(node.id), { url, name, ping_interval });
+
       const com = parseComValue(saved.com) ?? node.data.com ?? null;
 
       set((state) => ({
@@ -376,13 +300,11 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
                   title: saved.name,
                   description: saved.url,
                   com,
-
                   metadata: buildWebsiteMetadata({
                     title: saved.name,
                     description: saved.url,
                     ping_interval: saved.ping_interval,
                     com,
-
                   }),
                 },
               }
@@ -403,7 +325,11 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
     try {
       await deleteSite(Number(siteId));
     } catch (err) {
-      console.warn("[FlowStore] Сервер не нашёл сайт, удаляем только локально", { nodeId, siteId, err });
+      console.warn("[FlowStore] Сервер не нашёл сайт, удаляем только локально", {
+        nodeId,
+        siteId,
+        err,
+      });
     } finally {
       cancelWebsiteSyncTimer(nodeId);
       set((state) => ({
@@ -421,9 +347,12 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
     }
   },
 
+  // 🔗 привязка сайта к Telegram
   setWebsiteTelegramLink: async (siteId, enabled) => {
     const state = get();
-    const node = state.nodes.find((candidate) => candidate.id === siteId && candidate.type === "website");
+    const node = state.nodes.find(
+      (candidate) => candidate.id === siteId && candidate.type === "website"
+    );
     if (!node) return;
 
     const numericId = Number(siteId);
@@ -462,6 +391,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
         lastSavedAt: new Date(),
       }));
 
+      // двойная проверка консистентности
       const latest = get();
       const shouldBeEnabledNow = isWebsiteConnectedToTelegram(siteId, latest.nodes, latest.edges);
       const latestNode = latest.nodes.find(
@@ -511,9 +441,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
 
     if (updatedNode && shouldSyncWebsite) {
       const existingTimer = websiteSyncTimers.get(updatedNode.id);
-      if (existingTimer) {
-        clearTimeout(existingTimer);
-      }
+      if (existingTimer) clearTimeout(existingTimer);
 
       const timer = setTimeout(() => {
         void get().syncWebsiteNode(updatedNode!);
@@ -531,7 +459,6 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       isDirty: true,
     }));
     get().setEdges((edges) => edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
-
   },
 
   runFlow: () => set({ isRunning: true, lastRunAt: new Date() }),
