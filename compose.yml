@@ -160,7 +160,7 @@ services:
         dockerfile: Dockerfile
       container_name: frontend
       environment:
-        - NODE_ENV=production   # или development
+        - NODE_ENV=development   # или development
         - VITE_API_URL=http://api_service:8000
       ports:
         - "8080:8080"
