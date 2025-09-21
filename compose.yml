@@ -54,7 +54,8 @@ services:
     privileged: true
     environment:
       INTERVAL: 60
-      INPUT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/monitor   # 👈 теперь так
+      INPUT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/monitor
+   # 👈 теперь так
       NOTIFY_ALWAYS: 0
     networks:
       - broker_network
@@ -146,6 +147,8 @@ services:
         condition: service_healthy   # ✅ ждать пока ClickHouse будет healthy
     networks:
       - broker_network
+    environment:
+      INPUT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/monitor
 
 #################################
 networks:
