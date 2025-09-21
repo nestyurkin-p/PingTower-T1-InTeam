@@ -20,7 +20,7 @@ if str(ROOT_DIR.parent) not in sys.path:
 
 from core.config import settings  # noqa: E402
 from broker import app, broker, pinger_exchange  # noqa: E402
-from pinger_checks import CHECKS as DEFAULT_CHECKS, run_checks  # noqa: E402
+from pinger_checks import run_checks  # noqa: E402
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
