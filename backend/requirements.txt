@@ -1,7 +1,8 @@
 fastapi==0.115.0
 uvicorn==0.30.6
-environs==11.2.1
 SQLAlchemy==2.0.34
 asyncpg==0.29.0
 faststream[rabbit]==0.5.44
 pydantic==2.9.2
+pydantic-settings>=2.2
+python-dotenv>=1.0

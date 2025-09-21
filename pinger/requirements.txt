@@ -3,3 +3,6 @@ psycopg2
 faststream[rabbit]
 clickhouse-connect
 ping3
+pydantic>=2.7
+pydantic-settings>=2.2
+python-dotenv>=1.0

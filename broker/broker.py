@@ -32,7 +32,7 @@ llm_exchange = RabbitExchange(
 
 
 @app.after_startup
-async def startup():
+async def startup() -> None:
     await broker.declare_exchange(pinger_exchange)
     await broker.declare_exchange(llm_exchange)
 
@@ -49,9 +49,12 @@ async def startup():
     await broker.declare_queue(
         RabbitQueue("llm-to-web-queue", durable=True, routing_key=settings.rabbit.llm_routing_key)
     )
+    await broker.declare_queue(
+        RabbitQueue("llm-to-dispatcher-queue", durable=True, routing_key=settings.rabbit.llm_routing_key)
+    )
 
 
-async def start_faststream():
+async def start_faststream() -> None:
     await app.run()
 
 
