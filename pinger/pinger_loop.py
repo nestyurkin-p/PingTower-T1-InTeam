@@ -192,21 +192,57 @@ def update_site_status(
             )
             conn.commit()
 
+async def monitor_site(site, stop_event: asyncio.Event):
+    site_id = site["id"]
+    url = site["url"]
+    name = site["name"]
+    ping_interval = site["ping_interval"]
 
-def write_clickhouse(record: dict, logs: dict, ping_interval: int) -> None:
-    """Export the record into ClickHouse if enabled."""
-    if CH_CLIENT is None:
-        return
-    try:
-        CH_CLIENT.insert(
-            CLICKHOUSE_TABLE,
-            [
-                [
-                    int(record["id"]),
-                    record["url"],
-                    record["name"],
-                    logs.get("timestamp") or strftime("%Y-%m-%dT%H:%M:%S"),
-                    logs.get("traffic_light"),
+    logging.info(f"▶ Запуск мониторинга {name} ({url}), интервал {ping_interval} сек")
+
+    last_status = site.get("last_traffic_light")  # сохраним последний известный статус
+
+    while not stop_event.is_set():
+        try:
+            history = site["history"][-4:] if site["history"] else []
+
+            logs = run_checks(url, history)
+            traffic_light = logs["traffic_light"]
+
+            history.append(logs)
+            history = history[-10:]
+
+            # Проверка изменений
+            changed = (last_status != traffic_light)
+
+            if NOTIFY_ALWAYS == 1:
+                skip_notification = False
+            else:
+                skip_notification = not changed
+
+            record = {
+                "id": site_id,
+                "url": url,
+                "name": name,
+                "com": {**(site["com"] or {}), "skip_notification": skip_notification},
+                "logs": logs,
+            }
+
+            # Обновляем статус в БД
+            update_site_status(site_id, traffic_light, history)
+
+            # Запоминаем новый статус
+            last_status = traffic_light
+
+            # запись в ClickHouse
+            ch_client.insert(
+                f"{CLICKHOUSE_DB}.site_logs",
+                [[
+                    site_id,
+                    url,
+                    name,
+                    datetime.strptime(logs["timestamp"], "%Y-%m-%dT%H:%M:%S"),
+                    traffic_light,
                     logs.get("http_status"),
                     logs.get("latency_ms"),
                     logs.get("ping_ms"),
@@ -305,14 +341,63 @@ async def monitor():
                 await broker.publish(
                     record,
                     exchange=pinger_exchange,
-                    routing_key=settings.rabbit.pinger_routing_key,
+                    routing_key="pinger.group",
                 )
-                logging.info("[V] ID=%s отправлено в брокер", site["id"])
-            except Exception as exc:  # pragma: no cover - diagnostics only
-                logging.error("[!] Ошибка публикации в RabbitMQ для ID=%s: %s", site["id"], exc)
+                logging.info(f"[✓] ID={site_id} отправлен в RMQ")
+            else:
+                logging.info(f"[→] Пропуск публикации ID={site_id} (skip_notification=True)")
 
-        await asyncio.sleep(INTERVAL)
+        except Exception as e:
+            logging.error(f"[!] Ошибка мониторинга сайта {name}: {e}")
 
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=ping_interval)
+        except asyncio.TimeoutError:
+            pass
+
+    logging.info(f"⏹ Мониторинг остановлен для {name} ({url})")
+
+
+async def site_manager():
+    """Менеджер: следит за актуальным списком сайтов"""
+    running_tasks: dict[int, dict] = {}
+
+    while True:
+        sites = fetch_sites()
+
+        for site_id, site in sites.items():
+            existing = running_tasks.get(site_id)
+
+            if existing:
+                if existing["ping_interval"] != site["ping_interval"]:
+                    logging.info(f"[↻] Перезапуск сайта {site['name']} (новый интервал)")
+                    existing["stop_event"].set()
+                    existing["task"].cancel()
+
+                    stop_event = asyncio.Event()
+                    task = asyncio.create_task(monitor_site(site, stop_event))
+                    running_tasks[site_id] = {
+                        "task": task,
+                        "stop_event": stop_event,
+                        "ping_interval": site["ping_interval"],
+                    }
+            else:
+                stop_event = asyncio.Event()
+                task = asyncio.create_task(monitor_site(site, stop_event))
+                running_tasks[site_id] = {
+                    "task": task,
+                    "stop_event": stop_event,
+                    "ping_interval": site["ping_interval"],
+                }
+
+        for site_id in list(running_tasks.keys()):
+            if site_id not in sites:
+                logging.info(f"[-] Сайт {site_id} удалён из БД — останавливаю таску")
+                running_tasks[site_id]["stop_event"].set()
+                running_tasks[site_id]["task"].cancel()
+                del running_tasks[site_id]
+
+        await asyncio.sleep(1)
 
 @app.after_startup
 async def start_monitor():
