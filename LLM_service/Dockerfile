@@ -12,4 +12,6 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 COPY core /app/core
 COPY LLM_service /app/LLM_service
 
+COPY .env /app/.env
 CMD ["python", "worker.py"]
+

@@ -13,4 +13,6 @@ COPY core /app/core
 COPY database /app/database
 COPY notifier-service /app/notifier-service
 
+COPY .env /app/.env
 CMD ["python", "main.py"]
+

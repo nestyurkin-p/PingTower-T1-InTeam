@@ -21,4 +21,6 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 COPY core /app/core
 COPY pinger /app/pinger
 
+COPY .env /app/.env
 CMD ["python", "pinger_loop.py"]
+

@@ -16,4 +16,6 @@ RUN poetry config --no-cache virtualenvs.create false \
 COPY core /app/core
 COPY broker /app/broker
 
+COPY .env /app/.env
 CMD ["poetry", "run", "python", "broker.py"]
+

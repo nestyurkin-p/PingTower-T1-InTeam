@@ -16,6 +16,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from core.config import settings  # noqa: E402
 from app_core import setup_logging  # noqa: E402
+from handlers.admin import router as admin_router  # noqa: E402
 from handlers.user_handlers import router as user_router  # noqa: E402
 from database import db  # noqa: E402
 
@@ -39,6 +40,7 @@ async def main() -> None:
         settings.telegram.admin_ids or "<none>",
         settings.rabbit.url,
     )
+    dp.include_router(admin_router)
     dp.include_router(user_router)
     await bot.delete_webhook(drop_pending_updates=False)
     await bot.set_my_commands([

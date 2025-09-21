@@ -13,4 +13,6 @@ COPY core /app/core
 COPY database /app/database
 COPY backend /app/backend
 
+COPY .env /app/.env
 CMD ["python", "-m", "app.main"]
+
