@@ -98,6 +98,13 @@ class LLMSettings(BaseModel):
         validation_alias=AliasChoices("LLM__USE_SKIP_NOTIFICATION", "USE_SKIP_NOTIFICATION"),
     )
 
+class ClickhouseSettings(BaseModel):
+    host: str = Field(validation_alias=AliasChoices("CLICKHOUSE_HOST", "CH_HOST"))
+    port: int = Field(validation_alias=AliasChoices("CLICKHOUSE_PORT", "CH_PORT"))
+    database: str = Field(validation_alias=AliasChoices("CLICKHOUSE_DB", "CH_DB"))
+    user: str = Field(validation_alias=AliasChoices("CLICKHOUSE_USER", "CH_USER"))
+    password: str = Field(validation_alias=AliasChoices("CLICKHOUSE_PASSWORD", "CH_PASSWORD"))
+    protocol: str = Field(validation_alias=AliasChoices("CLICKHOUSE_PROTOCOL", "CH_PROTOCOL"))
 
 class RedisSettings(BaseModel):
     host: str = Field(default="localhost", validation_alias=AliasChoices("REDIS__HOST", "REDIS_HOST"))
@@ -123,6 +130,7 @@ class Settings(BaseSettings):
     dispatcher: DispatcherSettings = DispatcherSettings()
     email: EmailSettings = EmailSettings()
     llm: LLMSettings = LLMSettings()
+    clickhouse: ClickhouseSettings = ClickhouseSettings()
     redis: RedisSettings = RedisSettings()
 
 

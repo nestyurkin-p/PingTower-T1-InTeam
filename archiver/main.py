@@ -1,5 +1,6 @@
-from database import db
-from core.config import
+import asyncio
+from archiver.archive import run_archive
 
-async def f():
-    await db.add_site_log()
+
+if __name__ == "__main__":
+    asyncio.run(run_archive())
