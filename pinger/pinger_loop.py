@@ -6,6 +6,7 @@ from pathlib import Path
 from time import strftime
 
 import psycopg2
+from psycopg2.extras import Json
 
 try:
     import clickhouse_connect  # type: ignore
@@ -45,6 +46,40 @@ CLICKHOUSE_PASSWORD = settings.clickhouse.password
 CLICKHOUSE_TABLE = settings.clickhouse.table
 CLICKHOUSE_ENABLED = bool(settings.clickhouse.enabled and clickhouse_connect is not None)
 CH_CLIENT = None
+
+
+def write_postgres_log(record: dict, logs: dict, ping_interval: int) -> None:
+    try:
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                        INSERT INTO site_logs (
+                            site_id, url, name, traffic_light, http_status, latency_ms,
+                            ping_ms, ssl_days_left, dns_resolved, redirects, errors_last,
+                            ping_interval, raw_logs
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        record["id"],
+                        record["url"],
+                        record["name"],
+                        logs.get("traffic_light"),
+                        logs.get("http_status"),
+                        logs.get("latency_ms"),
+                        logs.get("ping_ms"),
+                        logs.get("ssl_days_left"),
+                        bool(logs.get("dns_resolved")) if logs.get("dns_resolved") is not None else None,
+                        logs.get("redirects"),
+                        logs.get("errors_last"),
+                        ping_interval,
+                        Json(record["logs"]),
+                    ),
+                )
+                conn.commit()
+    except Exception as exc:  # pragma: no cover - diagnostics only
+        logging.warning("Failed to persist log to Postgres: %s", exc)
 
 
 def _init_clickhouse() -> None:
@@ -228,6 +263,8 @@ async def monitor():
 
             if CLICKHOUSE_ENABLED:
                 write_clickhouse(record, logs, site["ping_interval"])
+
+            write_postgres_log(record, logs, site["ping_interval"])
 
             if skip_notification:
                 logging.info(

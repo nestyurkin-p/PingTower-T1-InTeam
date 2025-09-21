@@ -55,3 +55,25 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+
+class SiteLog(Base):
+    __tablename__ = "site_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    site_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    traffic_light: Mapped[str | None] = mapped_column(Text, nullable=True)
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ping_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ssl_days_left: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dns_resolved: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    redirects: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    errors_last: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ping_interval: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    raw_logs: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

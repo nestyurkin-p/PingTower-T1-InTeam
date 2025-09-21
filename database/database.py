@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from .models import Base, Site, Team, User
+from .models import Base, Site, SiteLog, Team, User
 from core.config import TelegramSettings
 
 
