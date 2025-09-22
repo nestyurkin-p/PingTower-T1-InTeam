@@ -62,8 +62,14 @@ services:
       RABBITMQ_PORT: 5672
       RABBITMQ_USER: root
       RABBITMQ_PASS: toor
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f pinger_loop.py || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - broker_network
+
 
   llm_service:
       build:
