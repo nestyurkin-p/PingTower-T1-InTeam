@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   rabbitmq:
     image: rabbitmq:3-management
@@ -6,15 +8,15 @@ services:
       - "5672:5672"
       - "15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: "root"
-      RABBITMQ_DEFAULT_PASS: "toor"
+      RABBITMQ_DEFAULT_USER: root
+      RABBITMQ_DEFAULT_PASS: toor
     networks:
       - broker_network
     healthcheck:
       test: ["CMD", "rabbitmqctl", "status"]
       interval: 5s
       timeout: 10s
-      retries: 3
+      retries: 5
 
   postgres:
     image: postgres:15-alpine
@@ -27,8 +29,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./postgres/init:/docker-entrypoint-initdb.d   # 👈 тут будет твой init.sql
-      #- postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d monitor"]
       interval: 5s
@@ -51,7 +52,6 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    privileged: true
     environment:
       INTERVAL: 60
       INPUT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/monitor
@@ -63,28 +63,30 @@ services:
       RABBITMQ_USER: root
       RABBITMQ_PASS: toor
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f pinger_loop.py || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:6767/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - broker_network
 
-
   llm_service:
-      build:
-        context: ./LLM_service
-        dockerfile: Dockerfile
-      container_name: llm_service
-      ports:
-        - "6868:6868"
-      depends_on:
-        rabbitmq:
-          condition: service_healthy # если настроен healthcheck
-      privileged: true
-  
-      networks:
-        - broker_network
+    build:
+      context: ./LLM_service
+      dockerfile: Dockerfile
+    container_name: llm_service
+    ports:
+      - "6868:6868"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - broker_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:6868/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   tg_service:
     build:
@@ -95,26 +97,27 @@ services:
       - "6966:6966"
     depends_on:
       rabbitmq:
-        condition: service_healthy # если настроен healthcheck
-    privileged: true
+        condition: service_healthy
     environment:
-      # Telegram
       TG_TOKEN: 8368944259:AAHj-ivSsU-6GVV7nG4Ai1KFpNT6tKzIemM
-      # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
-      # Logging
       LOG_LEVEL: INFO
     networks:
       - broker_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:6966/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
     container_name: redis
     restart: unless-stopped
     ports:
-       - "6379:6379"
+      - "6379:6379"
     networks:
       - broker_network
 
@@ -123,8 +126,8 @@ services:
     container_name: clickhouse
     restart: unless-stopped
     ports:
-      - "8123:8123"   # HTTP API
-      - "9000:9000"   # Native protocol
+      - "8123:8123"
+      - "9000:9000"
     environment:
       CLICKHOUSE_DB: monitor
       CLICKHOUSE_USER: default
@@ -135,7 +138,7 @@ services:
         hard: 262144
     volumes:
       - ./clickhouse_logs:/var/log/clickhouse-server
-      - ./clickhouse/init:/docker-entrypoint-initdb.d  # 👈 тут твои init.sql
+      - ./clickhouse/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD", "clickhouse-client", "--query=SELECT 1"]
       interval: 5s
@@ -143,8 +146,6 @@ services:
       retries: 5
     networks:
       - broker_network
-
-##### BACKEND ###################
 
   api_service:
     build:
@@ -155,40 +156,38 @@ services:
       - "8000:8000"
     depends_on:
       clickhouse:
-        condition: service_healthy   # ✅ ждать пока ClickHouse будет healthy
+        condition: service_healthy
     networks:
       - broker_network
     environment:
       INPUT_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/monitor
-
-#################################
-
-##### FRONTEND #################
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   frontend:
-      build:
-        context: ./frontend/pingtower-flow
-        dockerfile: Dockerfile
-      container_name: frontend
-      environment:
-        - NODE_ENV=develop   # или development
-        - VITE_API_URL=http://api_service:8000
-      ports:
-        - "8080:8080"
-      depends_on:
-        - api_service
-      networks:
-        - broker_network
+    build:
+      context: ./frontend/pingtower-flow
+      dockerfile: Dockerfile
+    container_name: frontend
+    environment:
+      - NODE_ENV=production
+      - VITE_API_URL=http://api_service:8000
+    ports:
+      - "8080:8080"
+    depends_on:
+      api_service:
+        condition: service_healthy
+    networks:
+      - broker_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-
-
-############################
 networks:
   broker_network:
     driver: bridge
-    external: false
-
-#volumes:
-  #postgres_data:
-  
-
