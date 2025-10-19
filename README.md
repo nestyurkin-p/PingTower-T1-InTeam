@@ -3,6 +3,10 @@
 
 `PingTower` отслеживает активность сторонних сервисов и, когда случается сбой, анализирует его при помощи нейросети и сообщает пользователям понятную информацию о сбое по различным каналам связи - `Telegram`, `Mail` и др.
 
+## Демо
+
+https://github.com/user-attachments/assets/8d699ec5-069f-4dc6-8786-06950fab1946
+
 ## Схема
 Проект декомпозирован на микросервисы, сообщающиеся посредством брокера сообщений RabbitMQ. [Логическая схема](https://s.icepanel.io/34N6PW8TrEZsle/Mpsl/landscape/diagrams/viewer?diagram=8q6WHcjX1g&model=GH1iRRA7xV&overlay_tab=technology&x1=-411.3&x2=2242.1&y1=-371.1&y2=1385.7) работы сервиса выглядит следующим образом:
 ![service_schema.png](readme_src/service_schema.png)
